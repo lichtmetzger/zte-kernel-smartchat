@@ -734,8 +734,6 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 				#endif
 				mfd->panel_power_on = TRUE;
 
-				msm_fb_set_backlight(mfd,
-						     mfd->bl_level, 0);
 
 /* ToDo: possible conflict with android which doesn't expect sw refresher */
 /*
@@ -761,7 +759,6 @@ static int msm_fb_blank_sub(int blank_mode, struct fb_info *info,
 
 			mfd->op_enable = FALSE;
 			curr_pwr_state = mfd->panel_power_on;
-			msm_fb_set_backlight(mfd, 0, 0);		///ZTE_LCD_LUYA_20100201_001
 			mfd->panel_power_on = FALSE;
 			bl_updated = 0;
 
