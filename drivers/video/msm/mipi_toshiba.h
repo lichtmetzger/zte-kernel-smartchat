@@ -31,7 +31,16 @@
 #ifndef MIPI_TOSHIBA_H
 #define MIPI_TOSHIBA_H
 
+#include <linux/pwm.h>
+#include <linux/mfd/pm8xxx/pm8921.h>
+
 int mipi_toshiba_device_register(struct msm_panel_info *pinfo,
 					u32 channel, u32 panel);
+
+#define MIPI_TOSHIBA_PWM_FREQ_HZ 300
+#define MIPI_TOSHIBA_PWM_PERIOD_USEC (USEC_PER_SEC / MIPI_TOSHIBA_PWM_FREQ_HZ)
+#define MIPI_TOSHIBA_PWM_LEVEL 100
+#define MIPI_TOSHIBA_PWM_DUTY_LEVEL \
+	(MIPI_TOSHIBA_PWM_PERIOD_USEC / MIPI_TOSHIBA_PWM_LEVEL)
 
 #endif  /* MIPI_TOSHIBA_H */
