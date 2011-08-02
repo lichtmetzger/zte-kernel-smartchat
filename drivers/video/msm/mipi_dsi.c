@@ -301,7 +301,6 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	else 
 #endif	
 //>2012/5/29-Read_lcd_id_from_reg_function-lizhiye
-		mipi_dsi_cmd_bta_sw_trigger(); /* clean up ack_err_status */
 	
 	ret = panel_next_on(pdev);
 
