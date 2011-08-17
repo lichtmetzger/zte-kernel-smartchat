@@ -956,3 +956,7 @@ void __init msm_acpu_clock_init(struct msm_acpu_clock_platform_data *clkdata)
 
 	return 0;
 }
+
+struct acpuclk_soc_data acpuclk_8960_soc_data __initdata = {
+	.init = acpuclk_8960_init,
+};

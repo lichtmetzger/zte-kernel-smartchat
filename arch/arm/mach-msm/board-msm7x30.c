@@ -5818,12 +5818,6 @@ static struct msm_i2c_ssbi_platform_data msm_i2c_ssbi7_pdata = {
 };
 #endif
 
-static struct acpuclk_platform_data msm7x30_clock_data __initdata = {
-	.acpu_switch_time_us = 50,
-	.vdd_switch_time_us = 62,
-	.init = acpuclk_7x30_init,
-};
-
 static void __init msm7x30_init_irq(void)
 {
 	msm_init_irq();
