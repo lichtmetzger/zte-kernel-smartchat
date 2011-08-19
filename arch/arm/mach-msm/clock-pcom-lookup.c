@@ -143,7 +143,7 @@ static DEFINE_CLK_VOTER(ebi_vfe_clk,	&ebi1_clk.c);
 static DEFINE_CLK_VOTER(ebi_adm_clk,	&ebi1_clk.c);
 
 static struct clk_lookup msm_clocks_7x01a[] = {
-	CLK_LOOKUP("adm_clk",		adm_clk.c,	NULL),
+	CLK_LOOKUP("core_clk",		adm_clk.c,	"msm_dmov"),
 	CLK_LOOKUP("adsp_clk",		adsp_clk.c,	NULL),
 	CLK_LOOKUP("ebi1_clk",		ebi1_clk.c,	NULL),
 	CLK_LOOKUP("ebi2_clk",		ebi2_clk.c,	NULL),
@@ -192,7 +192,7 @@ struct clock_init_data msm7x01a_clock_init_data __initdata = {
 };
 
 static struct clk_lookup msm_clocks_7x27[] = {
-	CLK_LOOKUP("adm_clk",		adm_clk.c,	NULL),
+	CLK_LOOKUP("core_clk",		adm_clk.c,	"msm_dmov"),
 	CLK_LOOKUP("adsp_clk",		adsp_clk.c,	NULL),
 	CLK_LOOKUP("ebi1_clk",		ebi1_clk.c,	NULL),
 	CLK_LOOKUP("ebi2_clk",		ebi2_clk.c,	NULL),
@@ -246,7 +246,7 @@ static struct clk_lookup msm_clocks_7x27[] = {
 	CLK_LOOKUP("ebi1_mddi_clk",	ebi_mddi_clk.c,	NULL),
 	CLK_LOOKUP("ebi1_usb_clk",	ebi_usb_clk.c,	NULL),
 	CLK_LOOKUP("ebi1_vfe_clk",	ebi_vfe_clk.c,	NULL),
-	CLK_LOOKUP("ebi1_clk",		ebi_adm_clk.c,	"msm_dmov"),
+	CLK_LOOKUP("mem_clk",		ebi_adm_clk.c,	"msm_dmov"),
 };
 
 struct clock_init_data msm7x27_clock_init_data __initdata = {
@@ -255,7 +255,7 @@ struct clock_init_data msm7x27_clock_init_data __initdata = {
 };
 
 static struct clk_lookup msm_clocks_7x27a[] = {
-	CLK_LOOKUP("adm_clk",		adm_clk.c,	NULL),
+	CLK_LOOKUP("core_clk",		adm_clk.c,	"msm_dmov"),
 	CLK_LOOKUP("adsp_clk",		adsp_clk.c,	NULL),
 	CLK_LOOKUP("ahb_m_clk",		ahb_m_clk.c,	NULL),
 	CLK_LOOKUP("ahb_s_clk",		ahb_s_clk.c,	NULL),
@@ -326,7 +326,7 @@ static struct clk_lookup msm_clocks_7x27a[] = {
 	CLK_LOOKUP("ebi1_mddi_clk",	ebi_mddi_clk.c,	NULL),
 	CLK_LOOKUP("ebi1_usb_clk",	ebi_usb_clk.c,	NULL),
 	CLK_LOOKUP("ebi1_vfe_clk",	ebi_vfe_clk.c,	NULL),
-	CLK_LOOKUP("ebi1_clk",		ebi_adm_clk.c,	"msm_dmov"),
+	CLK_LOOKUP("mem_clk",		ebi_adm_clk.c,	"msm_dmov"),
 };
 
 struct clock_init_data msm7x27a_clock_init_data __initdata = {
@@ -335,7 +335,7 @@ struct clock_init_data msm7x27a_clock_init_data __initdata = {
 };
 
 static struct clk_lookup msm_clocks_8x50[] = {
-	CLK_LOOKUP("adm_clk",		adm_clk.c,	NULL),
+	CLK_LOOKUP("core_clk",		adm_clk.c,	"msm_dmov"),
 	CLK_LOOKUP("ce_clk",		ce_clk.c,		NULL),
 	CLK_LOOKUP("ebi1_clk",		ebi1_clk.c,	NULL),
 	CLK_LOOKUP("ebi2_clk",		ebi2_clk.c,	NULL),
@@ -396,7 +396,7 @@ static struct clk_lookup msm_clocks_8x50[] = {
 	CLK_LOOKUP("ebi1_tv_clk",	ebi_tv_clk.c,	NULL),
 	CLK_LOOKUP("ebi1_usb_clk",	ebi_usb_clk.c,	NULL),
 	CLK_LOOKUP("ebi1_vfe_clk",	ebi_vfe_clk.c,	NULL),
-	CLK_LOOKUP("ebi1_clk",		ebi_adm_clk.c,	"msm_dmov"),
+	CLK_LOOKUP("mem_clk",		ebi_adm_clk.c,	"msm_dmov"),
 
 	CLK_LOOKUP("iface_clk",		grp_3d_p_clk.c,	"kgsl-3d0.0"),
 	CLK_LOOKUP("core_clk",		grp_2d_clk.c,	"kgsl-2d0.0"),
