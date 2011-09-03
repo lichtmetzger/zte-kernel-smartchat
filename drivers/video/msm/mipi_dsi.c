@@ -304,6 +304,15 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	else 
 #endif	
 //>2012/5/29-Read_lcd_id_from_reg_function-lizhiye
+	  
+	if (mipi->force_clk_lane_hs) {
+		u32 tmp;
+
+		tmp = MIPI_INP(MIPI_DSI_BASE + 0xA8);
+		tmp |= (1<<28);
+		MIPI_OUTP(MIPI_DSI_BASE + 0xA8, tmp);
+		wmb();
+	}
 	
 	ret = panel_next_on(pdev);
 

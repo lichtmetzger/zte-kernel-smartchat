@@ -1153,18 +1153,22 @@ int mipi_dsi_cmds_rx(struct msm_fb_data_type *mfd,
 			struct dsi_buf *tp, struct dsi_buf *rp,
 			struct dsi_cmd_desc *cmds, int len)
 {
-	int cnt, res;
+	int cnt;
 	 int pkt_size = -1;
 	unsigned long flag;
 
 	if (len <= 2)
 		cnt = 4;	/* short read */
+	else if (mfd->panel_info.mipi.fixed_packet_size) {
+		len = mfd->panel_info.mipi.fixed_packet_size;
+		pkt_size = len; /* Avoid command to the device */
+		cnt = (len + 6 + 3) & ~0x03; /* Add padding for align */
+	}
 	else {
 		if (len > MIPI_DSI_LEN)
 			len = MIPI_DSI_LEN;	/* 8 bytes at most */
 
-		res = len & 0x03;
-		len += (4 - res); /* 4 bytes align */
+		len = (len + 3) & ~0x03; /* len 4 bytes align */
 		/*
 		 * add extra 2 bytes to len to have overall
 		 * packet size is multipe by 4. This also make
@@ -1175,7 +1179,6 @@ int mipi_dsi_cmds_rx(struct msm_fb_data_type *mfd,
 		len += 2;
 		cnt = len + 6; /* 4 bytes header + 2 bytes crc */
 	}
-
 
 	if (mfd->panel_info.type == MIPI_CMD_PANEL) {
 		/* make sure mdp dma is not txing pixel data */
@@ -1195,6 +1198,7 @@ int mipi_dsi_cmds_rx(struct msm_fb_data_type *mfd,
 		/* set new max pkt size */
 		pkt_size = len;
 		max_pktsize[0] = pkt_size;
+
 		mipi_dsi_buf_init(tp);
 		mipi_dsi_cmd_dma_add(tp, pkt_size_cmd);
 		mipi_dsi_cmd_dma_tx(tp);
@@ -1220,6 +1224,9 @@ int mipi_dsi_cmds_rx(struct msm_fb_data_type *mfd,
 
 	/* strip off dcs header & crc */
 	if (cnt > 4) { /* long response */
+		if (mfd->panel_info.mipi.fixed_packet_size)
+			rp->data += (cnt - len - 6); /* skip padding */
+
 		rp->data += 4; /* skip dcs header */
 		rp->len -= 6; /* deduct 4 bytes header + 2 bytes crc */
 		rp->len -= 2; /* extra 2 bytes added */
