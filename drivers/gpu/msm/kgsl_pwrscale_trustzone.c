@@ -31,10 +31,10 @@ struct tz_priv {
 };
 
 #define SWITCH_OFF		200
-#define TZ_RESET_ID		0x3
-#define TZ_UPDATE_ID		0x4
 #define SWITCH_OFF_RESET_TH	40
 #define SKIP_COUNTER		500
+#define TZ_RESET_ID		0x3
+#define TZ_UPDATE_ID		0x4
 
 #ifdef CONFIG_MSM_SECURE_IO
 /* Trap into the TrustZone, and call funcs there. */

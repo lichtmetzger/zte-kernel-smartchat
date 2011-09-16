@@ -1,0 +1,34 @@
+From d40c340622b3ae8aeb5a10cb521b9a6c934ba429 Mon Sep 17 00:00:00 2001
+From: Lucille Sylvester <lsylvest@codeaurora.org>
+Date: Fri, 16 Sep 2011 11:57:47 -0600
+Subject: msm: kgsl: Make TZ usage depend on general SCM availability
+
+SECURE_IO was an 8660 dependency, not a multi-platform feature.
+
+Signed-off-by: Lucille Sylvester <lsylvest@codeaurora.org>
+
+diff --git a/drivers/gpu/msm/kgsl_pwrscale_trustzone.c b/drivers/gpu/msm/kgsl_pwrscale_trustzone.c
+index d960da1..a6b37dd 100644
+--- a/drivers/gpu/msm/kgsl_pwrscale_trustzone.c
++++ b/drivers/gpu/msm/kgsl_pwrscale_trustzone.c
+@@ -33,7 +33,7 @@ struct tz_priv {
+ #define TZ_RESET_ID		0x3
+ #define TZ_UPDATE_ID		0x4
+ 
+-#ifdef CONFIG_MSM_SECURE_IO
++#ifdef CONFIG_MSM_SCM
+ /* Trap into the TrustZone, and call funcs there. */
+ static int __secure_tz_entry(u32 cmd, u32 val)
+ {
+@@ -45,7 +45,7 @@ static int __secure_tz_entry(u32 cmd, u32 val)
+ {
+ 	return 0;
+ }
+-#endif /* CONFIG_MSM_SECURE_IO */
++#endif /* CONFIG_MSM_SCM */
+ 
+ static ssize_t tz_governor_show(struct kgsl_device *device,
+ 				struct kgsl_pwrscale *pwrscale,
+-- 
+cgit v0.10.1
+
