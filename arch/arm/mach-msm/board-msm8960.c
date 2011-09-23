@@ -614,7 +614,7 @@ static struct msm_gpiomux_config msm8960_cyts_configs[] __initdata = {
 #ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
 #define MSM_ION_EBI_SIZE	MSM_PMEM_SIZE
 #define MSM_ION_ADSP_SIZE	MSM_PMEM_ADSP_SIZE
-#define MSM_ION_HEAP_NUM	4
+#define MSM_ION_HEAP_NUM	5
 #else
 #define MSM_ION_HEAP_NUM	2
 #endif
@@ -771,6 +771,11 @@ struct ion_platform_data ion_pdata = {
 			.name	= ION_ADSP_HEAP_NAME,
 			.size	= MSM_ION_ADSP_SIZE,
 			.memory_type = ION_EBI_TYPE,
+		},
+		{
+			.id	= ION_HEAP_IOMMU_ID,
+			.type	= ION_HEAP_TYPE_IOMMU,
+			.name	= ION_IOMMU_HEAP_NAME,
 		},
 #endif
 	}
