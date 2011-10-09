@@ -43,7 +43,8 @@
 #define IOMEM(x)	((void __force __iomem *)(x))
 #endif
 
-#if defined(CONFIG_ARCH_MSM8960) || defined(CONFIG_ARCH_APQ8064)
+#if defined(CONFIG_ARCH_MSM8960) || defined(CONFIG_ARCH_APQ8064) || \
+    defined(CONFIG_ARCH_MSMCOPPER)
 /* Unified iomap */
 
 #define MSM_TMR_BASE		IOMEM(0xFA000000)	/*  4K	*/
@@ -74,6 +75,7 @@
 
 #include "msm_iomap-8960.h"
 #include "msm_iomap-8064.h"
+#include "msm_iomap-copper.h"
 
 #else
 /* Legacy single-target iomap */
