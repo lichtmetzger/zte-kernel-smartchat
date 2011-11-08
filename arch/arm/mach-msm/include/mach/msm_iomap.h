@@ -43,6 +43,8 @@
 #define IOMEM(x)	((void __force __iomem *)(x))
 #endif
 
+#define MSM_DEBUG_UART_SIZE	SZ_4K
+
 #if defined(CONFIG_ARCH_MSM8960) || defined(CONFIG_ARCH_APQ8064) || \
     defined(CONFIG_ARCH_MSMCOPPER)
 /* Unified iomap */
@@ -90,6 +92,17 @@
 #include "msm_iomap-fsm9xxx.h"
 #else
 #include "msm_iomap-7xxx.h"
+#endif
+
+#if defined(CONFIG_DEBUG_MSM_UART1)
+#define MSM_DEBUG_UART_BASE	0xFB000000
+#define MSM_DEBUG_UART_PHYS	MSM_UART1_PHYS
+#elif defined(CONFIG_DEBUG_MSM_UART2)
+#define MSM_DEBUG_UART_BASE	0xFB000000
+#define MSM_DEBUG_UART_PHYS	MSM_UART2_PHYS
+#elif defined(CONFIG_DEBUG_MSM_UART3)
+#define MSM_DEBUG_UART_BASE	0xFB000000
+#define MSM_DEBUG_UART_PHYS	MSM_UART3_PHYS
 #endif
 
 #endif
