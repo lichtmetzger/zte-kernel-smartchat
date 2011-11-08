@@ -154,7 +154,7 @@ static int mipi_dsi_off(struct platform_device *pdev)
 	else
 		up(&mfd->dma->mutex);
 
-	pr_debug("%s:\n", __func__);
+	pr_debug("%s-:\n", __func__);
 
 	return ret;
 }
@@ -188,11 +188,6 @@ static int mipi_dsi_on(struct platform_device *pdev)
 
 	clk_rate = mfd->fbi->var.pixclock;
 	clk_rate = min(clk_rate, mfd->panel_info.clk_max);
-
-
-#ifndef CONFIG_FB_MSM_MDP303
-	mdp4_overlay_dsi_state_set(ST_DSI_RESUME);
-#endif
 
 	MIPI_OUTP(MIPI_DSI_BASE + 0x114, 1);
 	MIPI_OUTP(MIPI_DSI_BASE + 0x114, 0);
@@ -314,6 +309,11 @@ static int mipi_dsi_on(struct platform_device *pdev)
 		wmb();
 	}
 	
+	if (mdp_rev >= MDP_REV_41)
+		mutex_lock(&mfd->dma->ov_mutex);
+	else
+		down(&mfd->dma->mutex);
+	
 	ret = panel_next_on(pdev);
 
 	mipi_dsi_op_mode_config(mipi->mode);
@@ -368,6 +368,16 @@ static int mipi_dsi_on(struct platform_device *pdev)
 #ifdef CONFIG_MSM_BUS_SCALING
 	mdp_bus_scale_update_request(2);
 #endif
+
+	mdp4_overlay_dsi_state_set(ST_DSI_RESUME);
+
+	if (mdp_rev >= MDP_REV_41)
+		mutex_unlock(&mfd->dma->ov_mutex);
+	else
+		up(&mfd->dma->mutex);
+
+	pr_debug("%s-:\n", __func__);
+
 	return ret;
 }
 
