@@ -1,0 +1,33 @@
+From 9406a3bc629c8b560d860f0e57e4e8df68e486f7 Mon Sep 17 00:00:00 2001
+From: Pankaj Kumar <pakuma@codeaurora.org>
+Date: Fri, 23 Dec 2011 18:07:15 +0530
+Subject: [PATCH] msm: acpuclock-7201: Ignore vdd switch request for v1.0
+ 7x27a/7x25a
+
+v1.0 of 7x27a/7x25a does not have working vdd switch support.
+
+Change-Id: Idd1e2599f1029448203b425630475ece7e4c4a97
+Signed-off-by: Pankaj Kumar <pakuma@codeaurora.org>
+---
+ arch/arm/mach-msm/acpuclock-7201.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/arch/arm/mach-msm/acpuclock-7201.c b/arch/arm/mach-msm/acpuclock-7201.c
+index 9fbe364..75b436d 100644
+--- a/arch/arm/mach-msm/acpuclock-7201.c
++++ b/arch/arm/mach-msm/acpuclock-7201.c
+@@ -487,6 +487,14 @@ static int acpuclk_set_vdd_level(int vdd)
+ {
+ 	uint32_t current_vdd;
+ 
++	/*
++	* NOTE: v1.0 of 7x27a/7x25a chip doesn't have working
++	* VDD switching support.
++	*/
++	if ((cpu_is_msm7x27a() || cpu_is_msm7x25a()) &&
++		(SOCINFO_VERSION_MINOR(socinfo_get_version()) < 1))
++		return 0;
++
+ 	current_vdd = readl_relaxed(A11S_VDD_SVS_PLEVEL_ADDR) & 0x07;
+ 
+ 	pr_debug("Switching VDD from %u mV -> %d mV\n",
