@@ -2413,6 +2413,7 @@ EXPORT_SYMBOL(kgsl_register_device);
 int kgsl_device_platform_probe(struct kgsl_device *device,
 			       irqreturn_t (*dev_isr) (int, void*))
 {
+	int result;
 	int status = -EINVAL;
 	struct kgsl_memregion *regspace = NULL;
 	struct resource *res;
@@ -2475,6 +2476,9 @@ int kgsl_device_platform_probe(struct kgsl_device *device,
 		device->id, regspace->mmio_phys_base,
 		regspace->sizebytes, regspace->mmio_virt_base);
 
+	result = kgsl_drm_init(pdev);
+	if (result)
+		goto error_iounmap;
 
 	status = kgsl_register_device(device);
 	if (!status)
@@ -2617,11 +2621,6 @@ static int __init kgsl_core_init(void)
 		if (result)
 			goto err;
 	}
-
-	result = kgsl_drm_init(NULL);
-
-	if (result)
-		goto err;
 
 	return 0;
 
