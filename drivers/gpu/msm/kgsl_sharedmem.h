@@ -31,6 +31,7 @@
 
 #include <linux/slab.h>
 #include <linux/dma-mapping.h>
+#include <linux/vmalloc.h>
 #include "kgsl_mmu.h"
 
 struct kgsl_device;
@@ -97,7 +98,7 @@ memdesc_sg_phys(struct kgsl_memdesc *memdesc,
 {
 	struct page *page = phys_to_page(physaddr);
 
-	memdesc->sg = kmalloc(sizeof(struct scatterlist) * 1, GFP_KERNEL);
+	memdesc->sg = vmalloc(sizeof(struct scatterlist) * 1);
 	if (memdesc->sg == NULL)
 		return -ENOMEM;
 
