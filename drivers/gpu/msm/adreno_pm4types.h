@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2002,2007-2012, Code Aurora Forum. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -174,6 +174,15 @@
 /*
  * for a3xx
  */
+
+#define CP_LOAD_STATE 0x30 /* load high level sequencer command */
+
+#define CP_LOADSTATE_DSTOFFSET_SHIFT 0x00000000
+#define CP_LOADSTATE_STATESRC_SHIFT 0x00000010
+#define CP_LOADSTATE_STATEBLOCKID_SHIFT 0x00000013
+#define CP_LOADSTATE_NUMOFUNITS_SHIFT 0x00000016
+#define CP_LOADSTATE_STATETYPE_SHIFT 0x00000000
+#define CP_LOADSTATE_EXTSRCADDR_SHIFT 0x00000002
 
 /* Conditionally load a IB based on a flag */
 #define CP_COND_INDIRECT_BUFFER_PFE 0x3A /* prefetch enabled */
