@@ -751,7 +751,6 @@ void mdp4_writeback_kickoff_video(struct msm_fb_data_type *mfd,
 		struct mdp4_overlay_pipe *pipe);
 void mdp4_writeback_dma_busy_wait(struct msm_fb_data_type *mfd);
 void mdp4_overlay1_done_writeback(struct mdp_dma_data *dma);
-void mdp4_dma_e_done_dtv(void);
 
 int mdp4_writeback_start(struct fb_info *info);
 int mdp4_writeback_stop(struct fb_info *info);
