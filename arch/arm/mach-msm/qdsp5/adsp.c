@@ -75,8 +75,6 @@ void suspend_allow_suspend(void)
 #include <mach/msm_adsp.h>
 #include "adsp.h"
 
-#define INT_ADSP INT_ADSP_A9_A11
-
 static struct adsp_info adsp_info;
 static struct msm_rpc_endpoint *rpc_cb_server_client;
 static struct msm_adsp_module *adsp_modules;
@@ -1119,7 +1117,7 @@ W/AudioTrack( 1898): obtainBuffer timed out (is the CPU pegged?)...
 
 		mutex_lock(&adsp_open_lock);
 		if (adsp_open_count++ == 0) {
-			enable_irq(INT_ADSP);
+			enable_irq(adsp_info.int_adsp);
 			prevent_suspend();
 		}
 		mutex_unlock(&adsp_open_lock);
@@ -1177,7 +1175,7 @@ static int msm_adsp_disable_locked(struct msm_adsp_module *module)
 			clk_disable(module->clk);
 		mutex_lock(&adsp_open_lock);
 		if (--adsp_open_count == 0) {
-			disable_irq(INT_ADSP);
+			disable_irq(adsp_info.int_adsp);
 			allow_suspend();
 			MM_DBG("disable interrupt\n");
 		}
@@ -1206,8 +1204,11 @@ static int msm_adsp_probe(struct platform_device *pdev)
 	unsigned count;
 	int rc, i;
 
-	if (pdev->id != (rpc_adsp_rtos_atom_vers & RPC_VERSION_MAJOR_MASK))
-		return -EINVAL;
+	adsp_info.int_adsp = platform_get_irq(pdev, 0);
+	if (adsp_info.int_adsp < 0) {
+		MM_ERR("no irq resource?\n");
+		return -ENODEV;
+	}
 
 	wake_lock_init(&adsp_wake_lock, WAKE_LOCK_SUSPEND, "adsp");
 	adsp_info.init_info_ptr = kzalloc(
@@ -1235,11 +1236,11 @@ static int msm_adsp_probe(struct platform_device *pdev)
 	spin_lock_init(&adsp_write_lock);
 	mutex_init(&adsp_info.lock);
 
-	rc = request_irq(INT_ADSP, adsp_irq_handler, IRQF_TRIGGER_RISING,
-			 "adsp", 0);
+	rc = request_irq(adsp_info.int_adsp, adsp_irq_handler,
+			IRQF_TRIGGER_RISING, "adsp", 0);
 	if (rc < 0)
 		goto fail_request_irq;
-	disable_irq(INT_ADSP);
+	disable_irq(adsp_info.int_adsp);
 
 	rpc_cb_server_client = msm_rpc_open();
 	if (IS_ERR(rpc_cb_server_client)) {
@@ -1291,8 +1292,8 @@ fail_rpc_register:
 	msm_rpc_close(rpc_cb_server_client);
 	rpc_cb_server_client = NULL;
 fail_rpc_open:
-	enable_irq(INT_ADSP);
-	free_irq(INT_ADSP, 0);
+	enable_irq(adsp_info.int_adsp);
+	free_irq(adsp_info.int_adsp, 0);
 fail_request_irq:
 	kfree(adsp_modules);
 	kfree(adsp_info.init_info_ptr);
@@ -1421,7 +1422,7 @@ static struct platform_driver msm_adsp_driver = {
 	},
 };
 
-static char msm_adsp_driver_name[] = "rs00000000";
+static const char msm_adsp_driver_name[] = "msm_adsp";
 
 #ifdef CONFIG_DEBUG_FS
 static const struct file_operations adsp_debug_fops = {
@@ -1460,9 +1461,6 @@ static int __init adsp_init(void)
 	rpc_adsp_rtos_mtoa_vers_comp = 0x00030001;
 #endif
 
-	snprintf(msm_adsp_driver_name, sizeof(msm_adsp_driver_name),
-		"rs%08x",
-		rpc_adsp_rtos_atom_prog);
 	msm_adsp_driver.driver.name = msm_adsp_driver_name;
 	rc = platform_driver_register(&msm_adsp_driver);
 	MM_INFO("%s -- %d\n", msm_adsp_driver_name, rc);
