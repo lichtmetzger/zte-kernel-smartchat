@@ -295,15 +295,6 @@ static void adreno_dump_rb(struct kgsl_device *device, const void *buf,
 	}
 }
 
-static bool adreno_ib_dump_enabled(void)
-{
-#ifdef CONFIG_MSM_KGSL_PSTMRTMDMP_NO_IB_DUMP
-	return 0;
-#else
-	return 1;
-#endif
-}
-
 struct log_field {
 	bool show;
 	const char *display;
