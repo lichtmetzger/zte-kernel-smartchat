@@ -45,6 +45,7 @@ obj-$(CONFIG_WEBCAM_OV7692) += ov7692.o
 obj-$(CONFIG_MT9D112) += mt9d112.o mt9d112_reg.o
 
 obj-$(CONFIG_MT9D113) += mt9d113.o mt9d113_reg.o
+obj-$(CONFIG_MSM_V4L2_VIDEO_OVERLAY_DEVICE) += msm_v4l2_video.o
 obj-$(CONFIG_OV5640_GLOBALOPTICS)  += ov5640.o  ov5640_reg.o
 obj-$(CONFIG_MT9D115)  += mt9d115.o  mt9d115_reg.o
 obj-$(CONFIG_S5K5CAGX_SAMSUNG_FPC)  += s5k5cagx_fpc.o
