@@ -267,3 +267,4 @@ obj-$(CONFIG_MSM_NATIVE_RESTART) += restart.o
 obj-$(CONFIG_MSM_PROC_COMM_REGULATOR) += proccomm-regulator.o
 
 obj-$(CONFIG_MSM_RTB) += msm_rtb.o
+obj-$(CONFIG_MSM_CACHE_DUMP) += msm_cache_dump.o

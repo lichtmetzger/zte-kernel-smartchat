@@ -1805,6 +1805,12 @@ config MSM_RTB_SEPARATE_CPUS
 	  for each cpu to log accesses. Selecting this option will log each cpu
 	  separately. This will guarantee that the last acesses for each cpu
 	  will be logged but there will be fewer entries per cpu
-
+	  
+config MSM_CACHE_DUMP
+	bool "Cache dumping support"
+	help
+	  Add infrastructure to dump the L1 and L2 caches to an allocated buffer.
+	  This allows for analysis of the caches in case cache corruption is
+	  suspected.
 
 endif
