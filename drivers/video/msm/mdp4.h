@@ -482,6 +482,14 @@ static inline void mdp4_overlay_dtv_wait4vsync(void)
 {
     /* empty */
 }
+static inline void mdp4_dtv_overlay_blt_start(struct msm_fb_data_type *mfd)
+{
+	return;
+}
+static inline void mdp4_dtv_overlay_blt_stop(struct msm_fb_data_type *mfd)
+{
+	return;
+}
 #endif
 
 #ifdef CONFIG_FB_MSM_HDMI_AS_PRIMARY
