@@ -1114,7 +1114,7 @@ W/AudioTrack( 1898): obtainBuffer timed out (is the CPU pegged?)...
 			rc = -ETIMEDOUT;
 		}
 		if (module->open_count++ == 0 && module->clk)
-			clk_enable(module->clk);
+			clk_prepare_enable(module->clk);
 
 		mutex_lock(&adsp_open_lock);
 		if (adsp_open_count++ == 0) {
@@ -1173,7 +1173,7 @@ static int msm_adsp_disable_locked(struct msm_adsp_module *module)
 						module->id, module);
 		module->state = ADSP_STATE_DISABLED;
 		if (--module->open_count == 0 && module->clk)
-			clk_disable(module->clk);
+			clk_disable_unprepare(module->clk);
 		mutex_lock(&adsp_open_lock);
 		if (--adsp_open_count == 0) {
 			disable_irq(adsp_info.int_adsp);
