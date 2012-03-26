@@ -193,13 +193,14 @@ int kgsl_mmu_pt_get_flags(struct kgsl_pagetable *pt,
 			enum kgsl_deviceid id);
 
 void kgsl_mmu_ptpool_destroy(void *ptpool);
-void *kgsl_mmu_ptpool_init(int ptsize, int entries);
+void *kgsl_mmu_ptpool_init(int entries);
 int kgsl_mmu_enabled(void);
 int kgsl_mmu_pt_equal(struct kgsl_pagetable *pt,
 			unsigned int pt_base);
 void kgsl_mmu_set_mmutype(char *mmutype);
 unsigned int kgsl_mmu_get_current_ptbase(struct kgsl_device *device);
 enum kgsl_mmutype kgsl_mmu_get_mmutype(void);
+unsigned int kgsl_mmu_get_ptsize(void);
 
 static inline int kgsl_mmu_gpuaddr_in_range(unsigned int gpuaddr)
 {
