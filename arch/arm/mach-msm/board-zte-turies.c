@@ -84,7 +84,7 @@ extern struct atmel_i2c_platform_data atmel_data;
 #endif
 
 #define PMEM_KERNEL_EBI1_SIZE	0x3A000
-#define MSM_PMEM_AUDIO_SIZE	0x5B000
+#define MSM_PMEM_AUDIO_SIZE	0x1F4000
 #define BAHAMA_SLAVE_ID_FM_ADDR         0x2A
 #define BAHAMA_SLAVE_ID_QMEMBIST_ADDR   0x7B
 #define BAHAMA_SLAVE_ID_FM_REG 0x02
