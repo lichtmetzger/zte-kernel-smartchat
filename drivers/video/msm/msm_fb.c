@@ -71,6 +71,10 @@ extern int load_565rle_image(char *filename);
 u32 LcdPanleID=(u32)LCD_PANEL_NOPANEL;   //ZTE_LCD_LHT_20100611_001
 static int internal_fb_refcnt=0; 
 static int skip_pan_display_cnt=2;
+
+/*  Idle wakelock to prevent PC between wake up and Vsync */
+struct wake_lock mdp_idle_wakelock;
+
 static unsigned char *fbram;
 static unsigned char *fbram_phys;
 static int fbram_size;
@@ -419,6 +423,10 @@ static int msm_fb_remove(struct platform_device *pdev)
 		del_timer(&mfd->msmfb_no_update_notify_timer);
 	complete(&mfd->msmfb_no_update_notify);
 	complete(&mfd->msmfb_update_notify);
+
+	/* Do this only for the primary panel */
+	if (mfd->fbi->node == 0)
+		wake_lock_destroy(&mdp_idle_wakelock);
 
 	/* remove /dev/fb* */
 	unregister_framebuffer(mfd->fbi);
@@ -1267,6 +1275,9 @@ static int msm_fb_register(struct msm_fb_data_type *mfd)
 		mfd->op_enable = FALSE;
 		return -EPERM;
 	}
+
+	if (fbi->node == 0)
+		wake_lock_init(&mdp_idle_wakelock, WAKE_LOCK_IDLE, "mdp");
 
 	fbram += fix->smem_len;
 	fbram_phys += fix->smem_len;
