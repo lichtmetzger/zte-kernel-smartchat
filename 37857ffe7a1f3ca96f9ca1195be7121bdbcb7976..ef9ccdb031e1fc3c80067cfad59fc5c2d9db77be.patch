@@ -1,0 +1,159 @@
+From ef9ccdb031e1fc3c80067cfad59fc5c2d9db77be Mon Sep 17 00:00:00 2001
+From: Siddhartha Agrawal <agrawals@codeaurora.org>
+Date: Tue, 15 May 2012 10:52:00 -0700
+Subject: msm: display: Change DSI escape clock to byte clock
+
+Changing DSI escape clock source from PXO to byte clock to add
+more flexibility.
+
+Change-Id: Ia78093f8b8be6a27c86f3e8db68fa1f4a4d85086
+CRs-Fixed: 361022
+Signed-off-by: Siddhartha Agrawal <agrawals@codeaurora.org>
+
+diff --git a/drivers/video/msm/mipi_chimei_wuxga.c b/drivers/video/msm/mipi_chimei_wuxga.c
+index 6ddf74d..e9e291e 100644
+--- a/drivers/video/msm/mipi_chimei_wuxga.c
++++ b/drivers/video/msm/mipi_chimei_wuxga.c
+@@ -143,6 +143,7 @@ static int __init mipi_chimei_wuxga_init(void)
+ 	pinfo->mipi.data_lane1 = true;
+ 	pinfo->mipi.data_lane2 = true;
+ 	pinfo->mipi.data_lane3 = true;
++	pinfo->mipi.esc_byte_ratio = 6;
+ 
+ 	pinfo->mipi.mode = DSI_VIDEO_MODE;
+ 	/*
+diff --git a/drivers/video/msm/mipi_chimei_wxga_pt.c b/drivers/video/msm/mipi_chimei_wxga_pt.c
+index 1ab50b7..88a5193 100644
+--- a/drivers/video/msm/mipi_chimei_wxga_pt.c
++++ b/drivers/video/msm/mipi_chimei_wxga_pt.c
+@@ -130,6 +130,7 @@ static int __init mipi_chimei_wxga_init(void)
+ 	pinfo->mipi.tx_eot_append = true;
+ 	pinfo->mipi.t_clk_post = 34;		/* Calculated */
+ 	pinfo->mipi.t_clk_pre = 64;		/* Calculated */
++	pinfo->mipi.esc_byte_ratio = 4;
+ 
+ 	pinfo->mipi.dsi_phy_db = &dsi_video_mode_phy_db;
+ 
+diff --git a/drivers/video/msm/mipi_dsi.c b/drivers/video/msm/mipi_dsi.c
+index 7564016..1ba1444 100644
+--- a/drivers/video/msm/mipi_dsi.c
++++ b/drivers/video/msm/mipi_dsi.c
+@@ -36,6 +36,7 @@
+ #include "mdp4.h"
+ 
+ u32 dsi_irq;
++u32 esc_byte_ratio;
+ 
+ static boolean tlmm_settings = FALSE;
+ 
+@@ -164,6 +165,7 @@ static int mipi_dsi_on(struct platform_device *pdev)
+ 	fbi = mfd->fbi;
+ 	var = &fbi->var;
+ 	pinfo = &mfd->panel_info;
++	esc_byte_ratio = pinfo->mipi.esc_byte_ratio;
+ 
+ 	if (mipi_dsi_pdata && mipi_dsi_pdata->dsi_power_save)
+ 		mipi_dsi_pdata->dsi_power_save(1);
+diff --git a/drivers/video/msm/mipi_dsi.h b/drivers/video/msm/mipi_dsi.h
+index d54c5b5..2bc49c0 100644
+--- a/drivers/video/msm/mipi_dsi.h
++++ b/drivers/video/msm/mipi_dsi.h
+@@ -126,6 +126,7 @@ enum dsi_trigger_type {
+ extern struct device dsi_dev;
+ extern int mipi_dsi_clk_on;
+ extern u32 dsi_irq;
++extern u32 esc_byte_ratio;
+ 
+ extern void  __iomem *periph_base;
+ extern char *mmss_cc_base;	/* mutimedia sub system clock control */
+diff --git a/drivers/video/msm/mipi_novatek_cmd_qhd_pt.c b/drivers/video/msm/mipi_novatek_cmd_qhd_pt.c
+index fbd2495..f139f4c 100644
+--- a/drivers/video/msm/mipi_novatek_cmd_qhd_pt.c
++++ b/drivers/video/msm/mipi_novatek_cmd_qhd_pt.c
+@@ -73,6 +73,7 @@ static int __init mipi_cmd_novatek_blue_qhd_pt_init(void)
+ 	pinfo.mipi.dst_format = DSI_CMD_DST_FORMAT_RGB888;
+ 	pinfo.mipi.vc = 0;
+ 	pinfo.mipi.data_lane0 = TRUE;
++	pinfo.mipi.esc_byte_ratio = 4;
+ #if defined(NOVATEK_TWO_LANE)
+ 	pinfo.mipi.data_lane1 = TRUE;
+ #endif
+diff --git a/drivers/video/msm/mipi_novatek_video_qhd_pt.c b/drivers/video/msm/mipi_novatek_video_qhd_pt.c
+index 42ddfbe..7a9d556 100644
+--- a/drivers/video/msm/mipi_novatek_video_qhd_pt.c
++++ b/drivers/video/msm/mipi_novatek_video_qhd_pt.c
+@@ -73,6 +73,7 @@ static int __init mipi_video_novatek_qhd_pt_init(void)
+ 	pinfo.mipi.vc = 0;
+ 	pinfo.mipi.rgb_swap = DSI_RGB_SWAP_BGR;
+ 	pinfo.mipi.data_lane0 = TRUE;
++	pinfo.mipi.esc_byte_ratio = 4;
+ #if defined(NOVATEK_TWO_LANE)
+ 	pinfo.mipi.data_lane1 = TRUE;
+ #endif
+diff --git a/drivers/video/msm/mipi_orise_video_720p_pt.c b/drivers/video/msm/mipi_orise_video_720p_pt.c
+index 629ff10..da8b5e5 100644
+--- a/drivers/video/msm/mipi_orise_video_720p_pt.c
++++ b/drivers/video/msm/mipi_orise_video_720p_pt.c
+@@ -85,6 +85,7 @@ static int __init mipi_video_orise_720p_pt_init(void)
+ 	pinfo.mipi.frame_rate = 55;
+ 	pinfo.mipi.dsi_phy_db = &dsi_video_mode_phy_db;
+ 	pinfo.mipi.tx_eot_append = TRUE;
++	pinfo.mipi.esc_byte_ratio = 4;
+ 
+ 	ret = mipi_orise_device_register(&pinfo, MIPI_DSI_PRIM,
+ 						MIPI_DSI_PANEL_720P_PT);
+diff --git a/drivers/video/msm/mipi_toshiba_video_wsvga_pt.c b/drivers/video/msm/mipi_toshiba_video_wsvga_pt.c
+index 2a8610b..6edd776 100644
+--- a/drivers/video/msm/mipi_toshiba_video_wsvga_pt.c
++++ b/drivers/video/msm/mipi_toshiba_video_wsvga_pt.c
+@@ -86,6 +86,7 @@ static int __init mipi_video_toshiba_wsvga_pt_init(void)
+ 	pinfo.mipi.data_lane2 = TRUE;
+ 	pinfo.mipi.t_clk_post = 0x20;
+ 	pinfo.mipi.t_clk_pre = 0x2d;
++	pinfo.mipi.esc_byte_ratio = 4;
+ 	pinfo.mipi.stream = 0; /* dma_p */
+ 	pinfo.mipi.mdp_trigger = 0;
+ 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
+diff --git a/drivers/video/msm/mipi_toshiba_video_wuxga.c b/drivers/video/msm/mipi_toshiba_video_wuxga.c
+index 297248f..8eddce4 100644
+--- a/drivers/video/msm/mipi_toshiba_video_wuxga.c
++++ b/drivers/video/msm/mipi_toshiba_video_wuxga.c
+@@ -85,6 +85,7 @@ static int __init mipi_video_toshiba_wuxga_init(void)
+ 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
+ 	pinfo.mipi.frame_rate = 60;
+ 	pinfo.mipi.dsi_phy_db = &dsi_video_mode_phy_db;
++	pinfo.mipi.esc_byte_ratio = 9;
+ 
+ 	ret = mipi_toshiba_device_register(&pinfo, MIPI_DSI_PRIM,
+ 						MIPI_DSI_PANEL_WUXGA);
+diff --git a/drivers/video/msm/msm_dss_io_8960.c b/drivers/video/msm/msm_dss_io_8960.c
+index b17c195..70c8afc 100644
+--- a/drivers/video/msm/msm_dss_io_8960.c
++++ b/drivers/video/msm/msm_dss_io_8960.c
+@@ -661,8 +661,8 @@ void mipi_dsi_clk_enable(void)
+ 	if (clk_set_rate(dsi_byte_div_clk, 1) < 0)	/* divided by 1 */
+ 		pr_err("%s: dsi_byte_div_clk - "
+ 			"clk_set_rate failed\n", __func__);
+-	if (clk_set_rate(dsi_esc_clk, 2) < 0) /* divided by 2 */
+-		pr_err("%s: dsi_esc_clk - "
++	if (clk_set_rate(dsi_esc_clk, esc_byte_ratio) < 0) /* divided by esc */
++		pr_err("%s: dsi_esc_clk - "			 /* clk ratio */
+ 			"clk_set_rate failed\n", __func__);
+ 	mipi_dsi_pclk_ctrl(&dsi_pclk, 1);
+ 	mipi_dsi_clk_ctrl(&dsicore_clk, 1);
+diff --git a/drivers/video/msm/msm_fb_panel.h b/drivers/video/msm/msm_fb_panel.h
+index 9d16b7b..8ccc21c 100644
+--- a/drivers/video/msm/msm_fb_panel.h
++++ b/drivers/video/msm/msm_fb_panel.h
+@@ -129,6 +129,8 @@ struct mipi_panel_info {
+ 	char mdp_trigger;
+ 	char dma_trigger;
+ 	uint32 dsi_pclk_rate;
++	/* byte to esc clk ratio */
++	uint32 esc_byte_ratio;
+ 	/* The packet-size should not bet changed */
+ 	char no_max_pkt_size;
+ 	/* Clock required during LP commands */
+-- 
+cgit v0.10.2
+
