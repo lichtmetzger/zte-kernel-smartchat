@@ -119,6 +119,8 @@ struct tavarua_device {
 	/*PS repeatcount for PS Tx */
 	int ps_repeatcount;
 	int newFMSrchAlg;
+	unsigned char spur_table_size;
+	struct fm_spur_data spur_data;
 };
 
 /**************************************************************************
@@ -146,6 +148,10 @@ static int tavarua_start(struct tavarua_device *radio,
 			enum radio_state_t state);
 static int tavarua_request_irq(struct tavarua_device *radio);
 static void start_pending_xfr(struct tavarua_device *radio);
+static int update_spur_table(struct tavarua_device *radio);
+static int xfr_rdwr_data(struct tavarua_device *radio, int op, int size,
+	unsigned long offset, unsigned char *buf);
+
 /* work function */
 static void read_int_stat(struct work_struct *work);
 
@@ -1022,6 +1028,35 @@ static void tavarua_handle_interrupts(struct tavarua_device *radio)
 			break;
 		case (0x80 | PHY_TXGAIN):
 			FMDBG("write PHY_TXGAIN is successful");
+			complete(&radio->sync_req_done);
+			break;
+		case (XFR_POKE_COMPLETE | LSH_DATA(ONE_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(TWO_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(THREE_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(FOUR_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(FIVE_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(SIX_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(SEVEN_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(EIGHT_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(NINE_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(TEN_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(ELEVEN_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(TWELVE_BYTE, 1)):
+		case (XFR_POKE_COMPLETE | LSH_DATA(THIRTEEN_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(ONE_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(TWO_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(THREE_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(FOUR_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(FIVE_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(SIX_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(SEVEN_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(EIGHT_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(NINE_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(TEN_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(ELEVEN_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(TWELVE_BYTE, 1)):
+		case (XFR_PEEK_COMPLETE | LSH_DATA(THIRTEEN_BYTE, 1)):
+			FMDBG("XFR interrupt for PEEK/POKE complete\n");
 			complete(&radio->sync_req_done);
 			break;
 		default:
@@ -2255,6 +2290,7 @@ static int tavarua_fops_release(struct file *file)
 		radio->pdata->config_i2s_gpio(FM_I2S_OFF);
 	}
 	radio->handle_irq = 1;
+	radio->spur_table_size = 0;
 	atomic_inc(&radio->users);
 	radio->marimba->mod_id = SLAVE_ID_BAHAMA;
 	//return 0;
@@ -2602,6 +2638,135 @@ static int poke_PSALL(struct tavarua_device *radio, unsigned char data)
 
 	return retval;
 }
+
+static int update_spur_table(struct tavarua_device *radio)
+{
+	unsigned char xfr_buf[XFR_REG_NUM];
+	unsigned char size = 0, tbl_size = 0;
+	int index = 0, offset = 0, addr = 0x0, val = 0;
+	int retval = 0, temp = 0, cnt = 0, j = 0;
+
+	memset(xfr_buf, 0x0, XFR_REG_NUM);
+
+	/* Read the SPUR Table Size */
+	retval = xfr_rdwr_data(radio, XFR_READ, 1, SPUR_TABLE_ADDR, &tbl_size);
+	if (retval < 0) {
+		FMDERR("%s: Failed to read SPUR table size\n", __func__);
+		return retval;
+	}
+
+	/* Calculate the new SPUR Register address */
+	val = addr = (SPUR_TABLE_START_ADDR + (tbl_size * 3));
+
+	/* Save the SPUR Table length configured by user*/
+	temp = radio->spur_table_size;
+
+	/* COnfigure the new spur table length */
+	size = (radio->spur_table_size + tbl_size);
+	retval = xfr_rdwr_data(radio, XFR_WRITE, 1, SPUR_TABLE_ADDR, &size);
+	if (retval < 0) {
+		FMDERR("%s: Failed to configure SPUR table size\n", __func__);
+		return retval;
+	}
+
+	/* Program the spur table entries */
+	for (cnt = 0; cnt < (temp / 4); cnt++) {
+		offset  = 0;
+		for (j = 0; j < 4; j++) {
+			xfr_buf[offset++] = GET_FREQ(COMPUTE_SPUR(
+				radio->spur_data.freq[index]), 1);
+			xfr_buf[offset++] = GET_FREQ(COMPUTE_SPUR(
+				radio->spur_data.freq[index]), 0);
+			xfr_buf[offset++] =
+				radio->spur_data.rmssi[index];
+			index++;
+		}
+		retval = xfr_rdwr_data(radio, XFR_WRITE, (SPUR_DATA_SIZE * 4),
+			addr, xfr_buf);
+		if (retval < 0) {
+			FMDERR("%s: Failed to program SPUR frequencies\n",
+				__func__);
+			return retval;
+		}
+		addr += (SPUR_DATA_SIZE * 4);
+	}
+
+	/* Program the additional SPUR Frequencies */
+	temp = radio->spur_table_size;
+	temp = (temp % 4);
+	if (temp > 0) {
+		offset = 0;
+		for (j = 0; j < temp; j++) {
+			xfr_buf[offset++] = GET_FREQ(COMPUTE_SPUR(
+				radio->spur_data.freq[index]), 1);
+			xfr_buf[offset++] = GET_FREQ(COMPUTE_SPUR(
+				radio->spur_data.freq[index]), 0);
+			xfr_buf[offset++] =
+				radio->spur_data.rmssi[index];
+			index++;
+		}
+		size   = (temp * SPUR_DATA_SIZE);
+		retval = xfr_rdwr_data(radio, XFR_WRITE, size, addr, xfr_buf);
+		if (retval < 0) {
+			FMDERR("%s: Failed to program SPUR frequencies\n",
+				__func__);
+			return retval;
+		}
+	}
+
+	return retval;
+}
+
+static int xfr_rdwr_data(struct tavarua_device *radio, int op, int size,
+	unsigned long offset, unsigned char *buf) {
+
+	unsigned char xfr_buf[XFR_REG_NUM];
+	int retval = 0, temp = 0;
+
+	memset(xfr_buf, 0x0, XFR_REG_NUM);
+	temp = size;
+
+	xfr_buf[XFR_MODE_OFFSET]     = (size << 1);
+	xfr_buf[XFR_ADDR_MSB_OFFSET] = GET_FREQ(offset, 1);
+	xfr_buf[XFR_ADDR_LSB_OFFSET] = GET_FREQ(offset, 0);
+
+	if (op == XFR_READ) {
+		xfr_buf[XFR_MODE_OFFSET] |= (XFR_PEEK_MODE);
+		size = 3;
+	} else if (op == XFR_WRITE) {
+		xfr_buf[XFR_MODE_OFFSET] |= (XFR_POKE_MODE);
+		memcpy(&xfr_buf[XFR_DATA_OFFSET], buf, size);
+		size += 3;
+	}
+
+	retval = tavarua_write_registers(radio, XFRCTRL, xfr_buf, size);
+	if (retval < 0) {
+		FMDERR("%s: Failed to performXFR operation\n", __func__);
+		return retval;
+	}
+
+	size = temp;
+
+	/*Wait for the XFR interrupt */
+	init_completion(&radio->sync_req_done);
+	if (!wait_for_completion_timeout(&radio->sync_req_done,
+		msecs_to_jiffies(WAIT_TIMEOUT))) {
+		FMDERR("Timeout: No XFR interrupt");
+	}
+
+	if (op == XFR_READ) {
+		retval = tavarua_read_registers(radio, XFRDAT0, size);
+		if (retval < 0) {
+			FMDERR("%s: Failed to read the XFR data\n", __func__);
+			return retval;
+		}
+		if (buf != NULL)
+			memcpy(buf, &radio->registers[XFRDAT0], size);
+	}
+
+	return retval;
+}
+
 static int peek_MPX_DCC(struct tavarua_device *radio)
 {
 	int retval = 0;
@@ -2724,6 +2889,7 @@ static int tavarua_vidioc_g_ctrl(struct file *file, void *priv,
 {
 	struct tavarua_device *radio = video_get_drvdata(video_devdata(file));
 	int retval = 0;
+	int cnt = 0;
 	unsigned char xfr_buf[XFR_REG_NUM];
 	signed char cRmssiThreshold;
 	signed char ioc;
@@ -2844,6 +3010,81 @@ static int tavarua_vidioc_g_ctrl(struct file *file, void *priv,
 	case V4L2_CID_PRIVATE_TAVARUA_ANTENNA:
 		ctrl->value = GET_REG_FIELD(radio->registers[IOCTRL],
 			IOC_ANTENNA_OFFSET, IOC_ANTENNA_MASK);
+		break;
+	case V4L2_CID_PRIVATE_INTF_LOW_THRESHOLD:
+		size = 0x04;
+		xfr_buf[0] = (XFR_PEEK_MODE | (size << 1));
+		xfr_buf[1] = ON_CHANNEL_TH_MSB;
+		xfr_buf[2] = ON_CHANNEL_TH_LSB;
+		retval = tavarua_write_registers(radio, XFRCTRL, xfr_buf, 3);
+		if (retval < 0) {
+			pr_err("%s: Failed to write\n", __func__);
+			return retval;
+		}
+		/*Wait for the XFR interrupt */
+		msleep(TAVARUA_DELAY*10);
+		retval = tavarua_read_registers(radio, XFRDAT0, 4);
+		if (retval < 0) {
+			pr_err("%s: On Ch. DET: Read failure\n", __func__);
+			return retval;
+		}
+		for (cnt = 0; cnt < 4; cnt++)
+			FMDBG("On-Channel data set is : 0x%x\t",
+				(int)radio->registers[XFRDAT0+cnt]);
+
+		ctrl->value =	LSH_DATA(radio->registers[XFRDAT0],   24) |
+				LSH_DATA(radio->registers[XFRDAT0+1], 16) |
+				LSH_DATA(radio->registers[XFRDAT0+2],  8) |
+				(radio->registers[XFRDAT0+3]);
+		FMDBG("The On Channel Threshold value is : 0x%x", ctrl->value);
+		break;
+	case V4L2_CID_PRIVATE_INTF_HIGH_THRESHOLD:
+		size = 0x04;
+		xfr_buf[0] = (XFR_PEEK_MODE | (size << 1));
+		xfr_buf[1] = OFF_CHANNEL_TH_MSB;
+		xfr_buf[2] = OFF_CHANNEL_TH_LSB;
+		retval = tavarua_write_registers(radio, XFRCTRL, xfr_buf, 3);
+		if (retval < 0) {
+			pr_err("%s: Failed to write\n", __func__);
+			return retval;
+		}
+		/*Wait for the XFR interrupt */
+		msleep(TAVARUA_DELAY*10);
+		retval = tavarua_read_registers(radio, XFRDAT0, 4);
+		if (retval < 0) {
+			pr_err("%s: Off Ch. DET: Read failure\n", __func__);
+			return retval;
+		}
+		for (cnt = 0; cnt < 4; cnt++)
+			FMDBG("Off-channel data set is : 0x%x\t",
+				(int)radio->registers[XFRDAT0+cnt]);
+
+		ctrl->value =	LSH_DATA(radio->registers[XFRDAT0],   24) |
+				LSH_DATA(radio->registers[XFRDAT0+1], 16) |
+				LSH_DATA(radio->registers[XFRDAT0+2],  8) |
+				(radio->registers[XFRDAT0+3]);
+		FMDBG("The Off Channel Threshold value is : 0x%x", ctrl->value);
+		break;
+	/*
+	 * These IOCTL's are place holders to keep the
+	 * driver compatible with change in frame works for IRIS
+	 */
+	case V4L2_CID_PRIVATE_SINR_THRESHOLD:
+	case V4L2_CID_PRIVATE_SINR_SAMPLES:
+	case V4L2_CID_PRIVATE_IRIS_GET_SINR:
+	case V4L2_CID_PRIVATE_SPUR_SELECTION:
+		retval = 0;
+		break;
+	case V4L2_CID_PRIVATE_SPUR_FREQ:
+		radio->spur_data.freq[radio->spur_table_size] =
+			ctrl->value;
+		break;
+	case V4L2_CID_PRIVATE_SPUR_FREQ_RMSSI:
+		radio->spur_data.rmssi[radio->spur_table_size++] =
+			ctrl->value;
+		break;
+	case V4L2_CID_PRIVATE_UPDATE_SPUR_TABLE:
+		retval = update_spur_table(radio);
 		break;
 	default:
 		retval = -EINVAL;
@@ -2994,6 +3235,7 @@ static int tavarua_vidioc_s_ctrl(struct file *file, void *priv,
 {
 	struct tavarua_device *radio = video_get_drvdata(video_devdata(file));
 	int retval = 0;
+	int size = 0, cnt = 0;
 	unsigned char value;
 	unsigned char xfr_buf[XFR_REG_NUM];
 	unsigned char tx_data[XFR_REG_NUM];
@@ -3056,6 +3298,7 @@ static int tavarua_vidioc_s_ctrl(struct file *file, void *priv,
 		}
 		/* check if off */
 		else if ((ctrl->value == FM_OFF) && radio->registers[RDCTRL]) {
+			radio->spur_table_size = 0;
 			FMDBG("turning off...\n");
         tavarua_write_register(radio, RDCTRL, ctrl->value);
         /* flush the event and work queues */             
@@ -3202,6 +3445,58 @@ static int tavarua_vidioc_s_ctrl(struct file *file, void *priv,
 	case V4L2_CID_PRIVATE_TAVARUA_ANTENNA:
 		SET_REG_FIELD(radio->registers[IOCTRL], ctrl->value,
 					IOC_ANTENNA_OFFSET, IOC_ANTENNA_MASK);
+		break;
+	case V4L2_CID_PRIVATE_INTF_LOW_THRESHOLD:
+		size = 0x04;
+		/* Poking the value of ON Channel Threshold value */
+		xfr_buf[0] = (XFR_POKE_MODE | (size << 1));
+		xfr_buf[1] = ON_CHANNEL_TH_MSB;
+		xfr_buf[2] = ON_CHANNEL_TH_LSB;
+		/* Data to be poked into the register */
+		xfr_buf[3] = (ctrl->value & 0xFF000000) >> 24;
+		xfr_buf[4] = (ctrl->value & 0x00FF0000) >> 16;
+		xfr_buf[5] = (ctrl->value & 0x0000FF00) >> 8;
+		xfr_buf[6] = (ctrl->value & 0x000000FF);
+
+		for (cnt = 3; cnt < 7; cnt++) {
+			FMDBG("On-channel data to be poked is : %d",
+				(int)xfr_buf[cnt]);
+		}
+
+		retval = tavarua_write_registers(radio, XFRCTRL,
+				xfr_buf, size+3);
+		if (retval < 0) {
+			pr_err("%s: Failed to write\n", __func__);
+			return retval;
+		}
+		/*Wait for the XFR interrupt */
+		msleep(TAVARUA_DELAY*10);
+		break;
+	case V4L2_CID_PRIVATE_INTF_HIGH_THRESHOLD:
+		size = 0x04;
+		/* Poking the value of OFF Channel Threshold value */
+		xfr_buf[0] = (XFR_POKE_MODE | (size << 1));
+		xfr_buf[1] = OFF_CHANNEL_TH_MSB;
+		xfr_buf[2] = OFF_CHANNEL_TH_LSB;
+		/* Data to be poked into the register */
+		xfr_buf[3] = (ctrl->value & 0xFF000000) >> 24;
+		xfr_buf[4] = (ctrl->value & 0x00FF0000) >> 16;
+		xfr_buf[5] = (ctrl->value & 0x0000FF00) >> 8;
+		xfr_buf[6] = (ctrl->value & 0x000000FF);
+
+		for (cnt = 3; cnt < 7; cnt++) {
+			FMDBG("Off-channel data to be poked is : %d",
+				(int)xfr_buf[cnt]);
+		}
+
+		retval = tavarua_write_registers(radio, XFRCTRL,
+				xfr_buf, size+3);
+		if (retval < 0) {
+			pr_err("%s: Failed to write\n", __func__);
+			return retval;
+		}
+		/*Wait for the XFR interrupt */
+		msleep(TAVARUA_DELAY*10);
 		break;
 	/* TX Controls */
 
