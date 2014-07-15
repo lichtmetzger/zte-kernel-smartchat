@@ -61,7 +61,7 @@
 #define DEBUG_PRINT 		0
 
 //#if SET_DOWNLOAD_BY_GPIO
-#include <melfas_download.h>
+#include "melfas_download.h"
 //#endif // SET_DOWNLOAD_BY_GPIO
 
 struct muti_touch_info
