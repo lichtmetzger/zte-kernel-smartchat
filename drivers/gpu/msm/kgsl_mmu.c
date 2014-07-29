@@ -22,6 +22,7 @@
 #include "kgsl_mmu.h"
 #include "kgsl_device.h"
 #include "kgsl_sharedmem.h"
+#include "adreno_postmortem.h"
 
 #define KGSL_MMU_ALIGN_SHIFT    13
 #define KGSL_MMU_ALIGN_MASK     (~((1 << KGSL_MMU_ALIGN_SHIFT) - 1))
@@ -711,13 +712,7 @@ EXPORT_SYMBOL(kgsl_mmu_get_mmutype);
 
 void kgsl_mmu_set_mmutype(char *mmutype)
 {
-	kgsl_mmu_type = KGSL_MMU_TYPE_NONE;
-#ifdef CONFIG_MSM_KGSL_GPUMMU
-	kgsl_mmu_type = KGSL_MMU_TYPE_GPU;
-#elif defined(CONFIG_MSM_KGSL_IOMMU)
-	if (iommu_found())
-		kgsl_mmu_type = KGSL_MMU_TYPE_IOMMU;
-#endif
+	kgsl_mmu_type = iommu_found() ? KGSL_MMU_TYPE_IOMMU : KGSL_MMU_TYPE_GPU;
 	if (mmutype && !strncmp(mmutype, "gpummu", 6))
 		kgsl_mmu_type = KGSL_MMU_TYPE_GPU;
 	if (iommu_found() && mmutype && !strncmp(mmutype, "iommu", 5))
