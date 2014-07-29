@@ -205,14 +205,13 @@ int mdp_ppp_blit(struct fb_info *info, struct mdp_blit_req *req)
 
 void mdp4_fetch_cfg(uint32 core_clk)
 {
-
 	uint32 dmap_data, vg_data;
 	char *base;
 	int i;
 	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
-	if (core_clk >= 90000000) { /* 90 Mhz */
+	if (mdp_rev >= MDP_REV_41 || core_clk >= 90000000) { /* 90 Mhz */
 		dmap_data = 0x47; /* 16 bytes-burst x 8 req */
 		vg_data = 0x47; /* 16 bytes-burs x 8 req */
 	} else {
@@ -284,6 +283,11 @@ void mdp4_hw_init(void)
 	mdp4_mixer1_csc_post_bv_setup();
 	mdp4_mixer1_csc_pre_lv_setup();
 	mdp4_mixer1_csc_post_lv_setup();
+
+	if (mdp_rev <= MDP_REV_41) {
+		mdp4_mixer_gc_lut_setup(0);
+		mdp4_mixer_gc_lut_setup(1);
+	}
 
 	mdp4_vg_igc_lut_setup(0);
 	mdp4_vg_igc_lut_setup(1);
@@ -390,7 +394,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 		outpdw(MDP_BASE + 0x9501c, INTR_HIST_DONE);
 		if (mdp_is_hist_start == TRUE) {
 			MDP_OUTP(MDP_BASE + 0x95004,
-					mdp_hist.frame_cnt);
+					mdp_hist_frame_cnt);
 			MDP_OUTP(MDP_BASE + 0x95000, 1);
 		}
 	}
@@ -559,24 +563,10 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 		isr = inpdw(MDP_DMA_P_HIST_INTR_STATUS);
 		mask = inpdw(MDP_DMA_P_HIST_INTR_ENABLE);
 		outpdw(MDP_DMA_P_HIST_INTR_CLEAR, isr);
+		mb();
 		isr &= mask;
-		if (isr & INTR_HIST_DONE) {
-			if (mdp_hist.r)
-				memcpy(mdp_hist.r, MDP_BASE + 0x95100,
-						mdp_hist.bin_cnt*4);
-			if (mdp_hist.g)
-				memcpy(mdp_hist.g, MDP_BASE + 0x95200,
-						mdp_hist.bin_cnt*4);
-			if (mdp_hist.b)
-				memcpy(mdp_hist.b, MDP_BASE + 0x95300,
-					mdp_hist.bin_cnt*4);
+		if (isr & INTR_HIST_DONE)
 			complete(&mdp_hist_comp);
-			if (mdp_is_hist_start == TRUE) {
-				MDP_OUTP(MDP_BASE + 0x95004,
-						mdp_hist.frame_cnt);
-				MDP_OUTP(MDP_BASE + 0x95000, 1);
-			}
-		}
 	}
 
 out:

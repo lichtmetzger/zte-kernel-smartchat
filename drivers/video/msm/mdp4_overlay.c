@@ -535,7 +535,9 @@ void mdp4_overlay_vg_setup(struct mdp4_overlay_pipe *pipe)
 	outpdw(vg_base + 0x0004, src_xy);	/* MDP_RGB_SRC_XY */
 	outpdw(vg_base + 0x0008, dst_size);	/* MDP_RGB_DST_SIZE */
 	outpdw(vg_base + 0x000c, dst_xy);	/* MDP_RGB_DST_XY */
-	outpdw(vg_base + 0x0048, frame_size);	/* TILE frame size */
+
+	if (pipe->frame_format)
+		outpdw(vg_base + 0x0048, frame_size);	/* TILE frame size */
 
 	/*
 	 * Adjust src X offset to avoid MDP from overfetching pixels
@@ -1514,9 +1516,10 @@ static int mdp4_overlay_validate_downscale(struct mdp_overlay *req,
 	panel_clk_khz = pclk_rate/1000;
 	mdp_clk_hz = mdp_perf_level2clk_rate(perf_level);
 
-	if (!mdp_clk_hz) {
+	if (!mdp_clk_hz || !req->dst_rect.w || !req->dst_rect.h) {
 		pr_debug("mdp_perf_level2clk_rate returned 0,"
-				 "Downscale Validation incomplete\n");
+			 "or dst_rect height/width is 0,"
+			 "Downscale Validation incomplete\n");
 		return 0;
 	}
 
