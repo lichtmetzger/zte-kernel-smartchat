@@ -60,7 +60,7 @@ enum msm_cpu {
 	MSM_CPU_7X25AA,
 	MSM_CPU_7X25AB,
 	MSM_CPU_8064,
-	MSM_CPU_8X30,
+	MSM_CPU_8930,
 	MSM_CPU_7X27AA,
 };
 
@@ -114,7 +114,7 @@ static inline int read_msm_cpu_type(void)
 		if (get_core_count() == 2)
 			return MSM_CPU_8960;
 		else
-			return MSM_CPU_8X30;
+			return MSM_CPU_8930;
 
 	case 0x510F06F0:
 		return MSM_CPU_8064;
@@ -232,9 +232,9 @@ static inline int cpu_is_apq8064(void)
 	return read_msm_cpu_type() == MSM_CPU_8064;
 }
 
-static inline int cpu_is_msm8x30(void)
+static inline int cpu_is_msm8930(void)
 {
-	return read_msm_cpu_type() == MSM_CPU_8X30;
+	return read_msm_cpu_type() == MSM_CPU_8930;
 }
 
 static inline int cpu_is_fsm9xxx(void)
