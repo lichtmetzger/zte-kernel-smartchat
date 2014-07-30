@@ -148,6 +148,7 @@ typedef enum {
 	MDP_DMA_S_BLOCK,
 	MDP_DMA_E_BLOCK,
 	MDP_OVERLAY1_BLOCK,
+	MDP_OVERLAY2_BLOCK,
 	MDP_MAX_BLOCK
 } MDP_BLOCK_TYPE;
 
@@ -248,6 +249,7 @@ struct mdp_dma_data {
 #define MDP_OVERLAY1_TERM 0x40
 #endif
 #define MDP_HISTOGRAM_TERM 0x80
+#define MDP_OVERLAY2_TERM 0x100
 
 #define ACTIVE_START_X_EN BIT(31)
 #define ACTIVE_START_Y_EN BIT(31)
@@ -269,6 +271,10 @@ struct mdp_dma_data {
 #define TV_ENC_UNDERRUN     BIT(7)
 #define TV_OUT_DMA3_START   BIT(13)
 #define MDP_HIST_DONE       BIT(20)
+
+/* histogram interrupts */
+#define INTR_HIST_DONE			BIT(1)
+#define INTR_HIST_RESET_SEQ_DONE	BIT(0)
 
 #ifdef CONFIG_FB_MSM_MDP22
 #define MDP_ANY_INTR_MASK (MDP_PPP_DONE| \
@@ -705,7 +711,16 @@ void mdp3_dsi_cmd_dma_busy_wait(struct msm_fb_data_type *mfd);
 #endif
 
 int mdp_hw_cursor_update(struct fb_info *info, struct fb_cursor *cursor);
+#if defined(CONFIG_FB_MSM_OVERLAY) && defined(CONFIG_FB_MSM_MDP40)
 int mdp_hw_cursor_sync_update(struct fb_info *info, struct fb_cursor *cursor);
+#else
+static inline int mdp_hw_cursor_sync_update(struct fb_info *info,
+		struct fb_cursor *cursor)
+{
+	return 0;
+}
+#endif
+
 void mdp_enable_irq(uint32 term);
 void mdp_disable_irq(uint32 term);
 void mdp_disable_irq_nosync(uint32 term);
@@ -734,6 +749,7 @@ void mdp_dma_s_update(struct msm_fb_data_type *mfd);
 int mdp_start_histogram(struct fb_info *info);
 int mdp_stop_histogram(struct fb_info *info);
 int mdp_histogram_ctrl(boolean en);
+void mdp_footswitch_ctrl(boolean on);
 
 #ifdef CONFIG_FB_MSM_MDP303
 static inline void mdp4_dsi_cmd_dma_busy_wait(struct msm_fb_data_type *mfd)
@@ -748,6 +764,10 @@ static inline void mdp4_dsi_blt_dmap_busy_wait(struct msm_fb_data_type *mfd)
 static inline void mdp4_overlay_dsi_state_set(int state)
 {
 	/* empty */
+}
+static inline int mdp4_overlay_dsi_state_get(void)
+{
+	return 0;
 }
 #endif
 

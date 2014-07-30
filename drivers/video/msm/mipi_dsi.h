@@ -63,7 +63,10 @@
 #define MIPI_DSI_PANEL_WVGA	1
 #define MIPI_DSI_PANEL_WVGA_PT	2
 #define MIPI_DSI_PANEL_FWVGA_PT	3
-#define DSI_PANEL_MAX	3
+#define MIPI_DSI_PANEL_WSVGA_PT	4
+#define MIPI_DSI_PANEL_QHD_PT 5
+#define MIPI_DSI_PANEL_WXGA	6
+#define DSI_PANEL_MAX	6
 
 enum {		/* mipi dsi panel */
 	DSI_VIDEO_MODE,
@@ -235,6 +238,17 @@ struct dsi_buf {
 #define DTYPE_PERIPHERAL_OFF	0x22
 #define DTYPE_PERIPHERAL_ON	0x32
 
+/*
+ * dcs response
+ */
+#define DTYPE_ACK_ERR_RESP      0x02
+#define DTYPE_EOT_RESP          0x08    /* end of tx */
+#define DTYPE_GEN_READ1_RESP    0x11    /* 1 parameter, short */
+#define DTYPE_GEN_READ2_RESP    0x12    /* 2 parameter, short */
+#define DTYPE_GEN_LREAD_RESP    0x1a
+#define DTYPE_DCS_LREAD_RESP    0x1c
+#define DTYPE_DCS_READ1_RESP    0x21    /* 1 parameter, short */
+#define DTYPE_DCS_READ2_RESP    0x22    /* 2 parameter, short */
 
 struct dsi_cmd_desc {
 	int dtype;

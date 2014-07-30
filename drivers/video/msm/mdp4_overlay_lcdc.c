@@ -385,13 +385,6 @@ static void mdp4_overlay_lcdc_dma_busy_wait(struct msm_fb_data_type *mfd)
 	pr_debug("%s: done pid=%d\n", __func__, current->pid);
 }
 
-void mdp4_overlay_lcdc_set_perf(struct msm_fb_data_type *mfd)
-{
-	mdp4_overlay_lcdc_wait4event(mfd, INTR_DMA_P_DONE);
-	/* change mdp clk while mdp is idle */
-	mdp4_set_perf_level();
-}
-
 void mdp4_overlay_lcdc_vsync_push(struct msm_fb_data_type *mfd,
 			struct mdp4_overlay_pipe *pipe)
 {
@@ -421,6 +414,7 @@ void mdp4_overlay_lcdc_vsync_push(struct msm_fb_data_type *mfd,
 	} else {
 		mdp4_overlay_lcdc_wait4event(mfd, INTR_PRIMARY_VSYNC);
 	}
+	mdp4_set_perf_level();
 }
 
 /*
@@ -445,11 +439,11 @@ void mdp4_dma_p_done_lcdc(void)
 void mdp4_overlay0_done_lcdc(struct mdp_dma_data *dma)
 {
 	spin_lock(&mdp_spin_lock);
+	dma->busy = FALSE;
 	if (lcdc_pipe->blt_addr == 0) {
 		spin_unlock(&mdp_spin_lock);
 		return;
 	}
-	dma->busy = FALSE;
 	mdp4_lcdc_blt_dmap_update(lcdc_pipe);
 	lcdc_pipe->dmap_cnt++;
 	mdp_disable_irq_nosync(MDP_OVERLAY0_TERM);
@@ -457,7 +451,6 @@ void mdp4_overlay0_done_lcdc(struct mdp_dma_data *dma)
 	complete(&dma->comp);
 }
 
-#ifdef CONFIG_FB_MSM_OVERLAY_WRITEBACK
 /*
  * make sure the MIPI_DSI_WRITEBACK_SIZE defined at boardfile
  * has enough space h * w * 3 * 2
@@ -526,24 +519,6 @@ void mdp4_lcdc_overlay_blt_stop(struct msm_fb_data_type *mfd)
 {
 	mdp4_lcdc_do_blt(mfd, 0);
 }
-#else
-int mdp4_lcdc_overlay_blt_offset(struct msm_fb_data_type *mfd,
-					struct msmfb_overlay_blt *req)
-{
-	return 0;
-}
-void mdp4_lcdc_overlay_blt(struct msm_fb_data_type *mfd,
-					struct msmfb_overlay_blt *req)
-{
-	return;
-}
-void mdp4_lcdc_overlay_blt_start(struct msm_fb_data_type *mfd)
-{
-}
-void mdp4_lcdc_overlay_blt_stop(struct msm_fb_data_type *mfd)
-{
-}
-#endif
 
 void mdp4_lcdc_overlay(struct msm_fb_data_type *mfd)
 {

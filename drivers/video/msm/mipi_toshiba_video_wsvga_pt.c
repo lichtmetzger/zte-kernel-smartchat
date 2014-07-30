@@ -29,7 +29,7 @@ static struct mipi_dsi_phy_ctrl dsi_video_mode_phy_db = {
     /* strength */
 	{0xff, 0x00, 0x06, 0x00},
 	/* pll control */
-	{0x0, 0x7f, 0x1, 0x1a, 0x00, 0x50, 0x48, 0x63,
+	{0x0, 0x7f, 0x31, 0xda, 0x00, 0x50, 0x48, 0x63,
 	0x41, 0x0f, 0x01,
 	0x00, 0x14, 0x03, 0x00, 0x02, 0x00, 0x20, 0x00, 0x01 },
 };
@@ -38,10 +38,8 @@ static int __init mipi_video_toshiba_wsvga_pt_init(void)
 {
 	int ret;
 
-#ifdef CONFIG_FB_MSM_MIPI_PANEL_DETECT
 	if (msm_fb_detect_client("mipi_video_toshiba_wsvga"))
 		return 0;
-#endif
 
 	pinfo.xres = 600;
 	pinfo.yres = 1024;
@@ -96,7 +94,7 @@ static int __init mipi_video_toshiba_wsvga_pt_init(void)
 	pinfo.mipi.tx_eot_append = TRUE;
 
 	ret = mipi_toshiba_device_register(&pinfo, MIPI_DSI_PRIM,
-						MIPI_DSI_PANEL_WVGA_PT);
+						MIPI_DSI_PANEL_WSVGA_PT);
 	if (ret)
 		printk(KERN_ERR "%s: failed to register device!\n", __func__);
 

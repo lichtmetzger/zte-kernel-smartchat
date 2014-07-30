@@ -202,25 +202,42 @@ static struct led_classdev backlight_led = {
 };
 #endif
 
+#define PANEL_NAME_MAX_LEN 30
 static struct msm_fb_platform_data *msm_fb_pdata;
-static char panel_name[128];
-module_param_string(panel_name, panel_name, sizeof(panel_name) , 0);
+static char prim_panel_name[PANEL_NAME_MAX_LEN];
+static char ext_panel_name[PANEL_NAME_MAX_LEN];
+module_param_string(prim_display, prim_panel_name, sizeof(prim_panel_name) , 0);
+module_param_string(ext_display, ext_panel_name, sizeof(ext_panel_name) , 0);
 
 int msm_fb_detect_client(const char *name)
 {
-	int ret = -EPERM;
+	int ret = 0;
+	u32 len;
 #ifdef CONFIG_FB_MSM_MDDI_AUTO_DETECT
 	u32 id;
 #endif
-
-	MSM_FB_DEBUG("\n name = %s, panel_name = %s", name, panel_name);
-	if (strlen(panel_name)) {
-		if (!strcmp((char *)panel_name, name))
+	len = strnlen(name, PANEL_NAME_MAX_LEN);
+	if (strnlen(prim_panel_name, PANEL_NAME_MAX_LEN)) {
+		MSM_FB_DEBUG("\n name = %s, prim_display = %s",
+			name, prim_panel_name);
+		if (!strncmp((char *)prim_panel_name, name, len))
 			return 0;
 		else
-			return -EPERM;
+			ret = -EPERM;
+	}
+	if (strnlen(ext_panel_name, PANEL_NAME_MAX_LEN)) {
+		MSM_FB_DEBUG("\n name = %s, ext_display = %s",
+			name, ext_panel_name);
+		if (!strncmp((char *)ext_panel_name, name, len))
+			return 0;
+		else
+			ret = -EPERM;
 	}
 
+	if (ret)
+		return ret;
+
+	ret = -EPERM;
 	if (msm_fb_pdata && msm_fb_pdata->detect_client) {
 		ret = msm_fb_pdata->detect_client(name);
 
@@ -2609,8 +2626,6 @@ static int msmfb_overlay_play_enable(struct fb_info *info, unsigned long *argp)
 	return 0;
 }
 
-
-#ifdef CONFIG_FB_MSM_OVERLAY_WRITEBACK
 static int msmfb_overlay_blt(struct fb_info *info, unsigned long *argp)
 {
 	int     ret;
@@ -2647,16 +2662,6 @@ static int msmfb_overlay_blt_off(struct fb_info *info, unsigned long *argp)
 
 	return ret;
 }
-#else
-static int msmfb_overlay_blt(struct fb_info *info, unsigned long *argp)
-{
-	return 0;
-}
-static int msmfb_overlay_blt_off(struct fb_info *info, unsigned long *argp)
-{
-	return 0;
-}
-#endif
 
 #ifdef CONFIG_FB_MSM_WRITEBACK_MSM_PANEL
 static int msmfb_overlay_ioctl_writeback_init(struct fb_info *info)
@@ -2868,6 +2873,11 @@ static void msmfb_set_color_conv(struct mdp_ccs *p)
 		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 	}
 }
+#else
+static void msmfb_set_color_conv(struct mdp_csc *p)
+{
+	mdp4_vg_csc_update(p);
+}
 #endif
 
 static int msmfb_notify_update(struct fb_info *info, unsigned long *argp)
@@ -2904,6 +2914,8 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 	struct mdp_histogram hist;
 #ifndef CONFIG_FB_MSM_MDP40
 	struct mdp_ccs ccs_matrix;
+#else
+	struct mdp_csc csc_matrix;
 #endif
 	struct mdp_page_protection fb_page_protection;
 	int ret = 0;
@@ -3010,7 +3022,16 @@ static int msm_fb_ioctl(struct fb_info *info, unsigned int cmd,
 		msmfb_set_color_conv(&ccs_matrix) ;
 		up(&msm_fb_ioctl_ppp_sem);
 #else
-		ret = -EINVAL;
+		ret = copy_from_user(&csc_matrix, argp, sizeof(csc_matrix));
+		if (ret) {
+			pr_err("%s:MSMFB_SET_CSC_MATRIX ioctl failed\n",
+				__func__);
+			return ret;
+		}
+		down(&msm_fb_ioctl_ppp_sem);
+		msmfb_set_color_conv(&csc_matrix);
+		up(&msm_fb_ioctl_ppp_sem);
+
 #endif
 
 		break;
