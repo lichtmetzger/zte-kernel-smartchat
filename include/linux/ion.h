@@ -19,7 +19,6 @@
 
 #include <linux/ioctl.h>
 #include <linux/types.h>
-#include <mach/ion.h>
 
 
 struct ion_handle;
@@ -36,6 +35,7 @@ enum ion_heap_type {
 	ION_HEAP_TYPE_SYSTEM,
 	ION_HEAP_TYPE_SYSTEM_CONTIG,
 	ION_HEAP_TYPE_CARVEOUT,
+	ION_HEAP_TYPE_IOMMU,
 	ION_HEAP_TYPE_CUSTOM, /* must be last so device specific heaps always
 				 are at the end of this enum */
 	ION_NUM_HEAPS,
@@ -58,11 +58,16 @@ enum ion_heap_ids {
 	ION_HEAP_SYSTEM_CONTIG_ID,
 	ION_HEAP_EBI_ID,
 	ION_HEAP_SMI_ID,
+	ION_HEAP_ADSP_ID,
+	ION_HEAP_AUDIO_ID,
+	ION_HEAP_IOMMU_ID,
 };
 
 #define ION_KMALLOC_HEAP_NAME	"kmalloc"
 #define ION_VMALLOC_HEAP_NAME	"vmalloc"
 #define ION_EBI1_HEAP_NAME	"EBI1"
+#define ION_ADSP_HEAP_NAME	"adsp"
+#define ION_IOMMU_HEAP_NAME	"iommu"
 
 #define CACHED          1
 #define UNCACHED        0
@@ -71,7 +76,11 @@ enum ion_heap_ids {
 
 #define ION_SET_CACHE(__cache)  ((__cache) << ION_CACHE_SHIFT)
 
+#define ION_IS_CACHED(__flags)	((__flags) & (1 << ION_CACHE_SHIFT))
+
 #ifdef __KERNEL__
+#include <linux/err.h>
+#include <mach/ion.h>
 struct ion_device;
 struct ion_heap;
 struct ion_mapper;
@@ -92,6 +101,11 @@ struct ion_buffer;
  * @name:	used for debug purposes
  * @base:	base address of heap in physical memory if applicable
  * @size:	size of the heap in bytes if applicable
+ * @request_region: function to be called when the number of allocations goes
+ *						from 0 -> 1
+ * @release_region: function to be called when the number of allocations goes
+ *						from 1 -> 0
+ * @setup_region:   function to be called upon ion registration
  *
  * Provided by the board file.
  */
@@ -102,17 +116,28 @@ struct ion_platform_heap {
 	ion_phys_addr_t base;
 	size_t size;
 	enum ion_memory_types memory_type;
+	void (*request_region)(void *);
+	void (*release_region)(void *);
+	void *(*setup_region)(void);
 };
 
 /**
  * struct ion_platform_data - array of platform heaps passed from board file
- * @nr:		number of structures in the array
- * @heaps:	array of platform_heap structions
+ * @nr:    number of structures in the array
+ * @request_region: function to be called when the number of allocations goes
+ *						from 0 -> 1
+ * @release_region: function to be called when the number of allocations goes
+ *						from 1 -> 0
+ * @setup_region:   function to be called upon ion registration
+ * @heaps: array of platform_heap structions
  *
  * Provided by the board file in the form of platform data to a platform device.
  */
 struct ion_platform_data {
 	int nr;
+	void (*request_region)(void *);
+	void (*release_region)(void *);
+	void *(*setup_region)(void);
 	struct ion_platform_heap heaps[];
 };
 
@@ -283,6 +308,65 @@ struct ion_handle *ion_import_fd(struct ion_client *client, int fd);
 int ion_handle_get_flags(struct ion_client *client, struct ion_handle *handle,
 				unsigned long *flags);
 
+
+/**
+ * ion_map_iommu - map the given handle into an iommu
+ *
+ * @client - client who allocated the handle
+ * @handle - handle to map
+ * @domain_num - domain number to map to
+ * @partition_num - partition number to allocate iova from
+ * @align - alignment for the iova
+ * @iova_length - length of iova to map. If the iova length is
+ *		greater than the handle length, the remaining
+ *		address space will be mapped to a dummy buffer.
+ * @iova - pointer to store the iova address
+ * @buffer_size - pointer to store the size of the buffer
+ * @flags - flags for options to map
+ *
+ * Maps the handle into the iova space specified via domain number. Iova
+ * will be allocated from the partition specified via partition_num.
+ * Returns 0 on success, negative value on error.
+ */
+int ion_map_iommu(struct ion_client *client, struct ion_handle *handle,
+			int domain_num, int partition_num, unsigned long align,
+			unsigned long iova_length, unsigned long *iova,
+			unsigned long *buffer_size,
+			unsigned long flags);
+
+
+/**
+ * ion_handle_get_size - get the allocated size of a given handle
+ *
+ * @client - client who allocated the handle
+ * @handle - handle to get the size
+ * @size - pointer to store the size
+ *
+ * gives the allocated size of a handle. returns 0 on success, negative
+ * value on error
+ *
+ * NOTE: This is intended to be used only to get a size to pass to map_iommu.
+ * You should *NOT* rely on this for any other usage.
+ */
+
+int ion_handle_get_size(struct ion_client *client, struct ion_handle *handle,
+			unsigned long *size);
+
+/**
+ * ion_unmap_iommu - unmap the handle from an iommu
+ *
+ * @client - client who allocated the handle
+ * @handle - handle to unmap
+ * @domain_num - domain to unmap from
+ * @partition_num - partition to unmap from
+ *
+ * Decrement the reference count on the iommu mapping. If the count is
+ * 0, the mapping will be removed from the iommu.
+ */
+void ion_unmap_iommu(struct ion_client *client, struct ion_handle *handle,
+			int domain_num, int partition_num);
+
+
 #else
 static inline struct ion_client *ion_client_create(struct ion_device *dev,
 				     unsigned int heap_mask, const char *name)
@@ -355,6 +439,24 @@ static inline int ion_handle_get_flags(struct ion_client *client,
 {
 	return -ENODEV;
 }
+
+static inline int ion_map_iommu(struct ion_client *client,
+			struct ion_handle *handle, int domain_num,
+			int partition_num, unsigned long align,
+			unsigned long iova_length, unsigned long *iova,
+			unsigned long flags)
+{
+	return -ENODEV;
+}
+
+static inline void ion_unmap_iommu(struct ion_client *client,
+			struct ion_handle *handle, int domain_num,
+			int partition_num)
+{
+	return;
+}
+
+
 #endif /* CONFIG_ION */
 #endif /* __KERNEL__ */
 
@@ -423,6 +525,7 @@ struct ion_custom_data {
 /* struct ion_flush_data - data passed to ion for flushing caches
  *
  * @handle:	handle with data to flush
+ * @fd:		fd to flush
  * @vaddr:	userspace virtual address mapped with mmap
  * @offset:	offset into the handle to flush
  * @length:	length of handle to flush
@@ -433,6 +536,7 @@ struct ion_custom_data {
  */
 struct ion_flush_data {
 	struct ion_handle *handle;
+	int fd;
 	void *vaddr;
 	unsigned int offset;
 	unsigned int length;

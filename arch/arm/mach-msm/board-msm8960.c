@@ -54,6 +54,7 @@
 #include <linux/platform_data/usb_rmnet.h>
 #include <mach/rpm.h>
 #include <mach/gpio.h>
+#include <mach/gpiomux.h>
 #include <mach/msm_bus_board.h>
 #include <mach/msm_memtypes.h>
 #include <mach/dma.h>
@@ -66,11 +67,12 @@
 #include <linux/mfd/wcd9310/pdata.h>
 #endif
 
+#include <linux/ion.h>
+#include <mach/ion.h>
+
 #include "timer.h"
-#include "gpiomux.h"
 #include "devices.h"
 #include "devices-msm8x60.h"
-#include "gpiomux.h"
 #include "spm.h"
 #include "board-msm8960.h"
 #include "pm.h"
@@ -607,6 +609,16 @@ static struct msm_gpiomux_config msm8960_cyts_configs[] __initdata = {
 #define MSM_PMEM_AUDIO_SIZE        0x279000
 #define MSM_PMEM_SIZE 0x1800000 /* 24 Mbytes */
 
+
+
+#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
+#define MSM_ION_EBI_SIZE	MSM_PMEM_SIZE
+#define MSM_ION_ADSP_SIZE	MSM_PMEM_ADSP_SIZE
+#define MSM_ION_HEAP_NUM	5
+#else
+#define MSM_ION_HEAP_NUM	2
+#endif
+
 #ifdef CONFIG_KERNEL_PMEM_EBI_REGION
 static unsigned pmem_kernel_ebi1_size = MSM_PMEM_KERNEL_EBI1_SIZE;
 static int __init pmem_kernel_ebi1_size_setup(char *p)
@@ -646,6 +658,7 @@ early_param("pmem_audio_size", pmem_audio_size_setup);
 #endif
 
 #ifdef CONFIG_ANDROID_PMEM
+#ifndef CONFIG_MSM_MULTIMEDIA_USE_ION
 static struct android_pmem_platform_data android_pmem_pdata = {
 	.name = "pmem",
 	.allocator_type = PMEM_ALLOCATORTYPE_ALLORNOTHING,
@@ -670,6 +683,7 @@ static struct platform_device android_pmem_adsp_device = {
 	.id = 2,
 	.dev = { .platform_data = &android_pmem_adsp_pdata },
 };
+#endif
 
 static struct android_pmem_platform_data android_pmem_audio_pdata = {
 	.name = "pmem_audio",
@@ -699,8 +713,10 @@ static struct memtype_reserve msm8960_reserve_table[] __initdata = {
 static void __init size_pmem_devices(void)
 {
 #ifdef CONFIG_ANDROID_PMEM
+#ifndef CONFIG_MSM_MULTIMEDIA_USE_ION
 	android_pmem_adsp_pdata.size = pmem_adsp_size;
 	android_pmem_pdata.size = pmem_size;
+#endif
 	android_pmem_audio_pdata.size = MSM_PMEM_AUDIO_SIZE;
 #endif
 }
@@ -713,8 +729,10 @@ static void __init reserve_memory_for(struct android_pmem_platform_data *p)
 static void __init reserve_pmem_memory(void)
 {
 #ifdef CONFIG_ANDROID_PMEM
+#ifndef CONFIG_MSM_MULTIMEDIA_USE_ION
 	reserve_memory_for(&android_pmem_adsp_pdata);
 	reserve_memory_for(&android_pmem_pdata);
+#endif
 	reserve_memory_for(&android_pmem_audio_pdata);
 	msm8960_reserve_table[MEMTYPE_EBI1].size += pmem_kernel_ebi1_size;
 #endif
@@ -725,10 +743,63 @@ static int msm8960_paddr_to_memtype(unsigned int paddr)
 	return MEMTYPE_EBI1;
 }
 
+#ifdef CONFIG_ION_MSM
+struct ion_platform_data ion_pdata = {
+	.nr = MSM_ION_HEAP_NUM,
+	.heaps = {
+		{
+			.id	= ION_HEAP_SYSTEM_ID,
+			.type	= ION_HEAP_TYPE_SYSTEM,
+			.name	= ION_KMALLOC_HEAP_NAME,
+		},
+		{
+			.id	= ION_HEAP_SYSTEM_CONTIG_ID,
+			.type	= ION_HEAP_TYPE_SYSTEM_CONTIG,
+			.name	= ION_VMALLOC_HEAP_NAME,
+		},
+#ifdef CONFIG_MSM_MULTIMEDIA_USE_ION
+		{
+			.id	= ION_HEAP_EBI_ID,
+			.type	= ION_HEAP_TYPE_CARVEOUT,
+			.name	= ION_EBI1_HEAP_NAME,
+			.size	= MSM_ION_EBI_SIZE,
+			.memory_type = ION_EBI_TYPE,
+		},
+		{
+			.id	= ION_HEAP_ADSP_ID,
+			.type	= ION_HEAP_TYPE_CARVEOUT,
+			.name	= ION_ADSP_HEAP_NAME,
+			.size	= MSM_ION_ADSP_SIZE,
+			.memory_type = ION_EBI_TYPE,
+		},
+		{
+			.id	= ION_HEAP_IOMMU_ID,
+			.type	= ION_HEAP_TYPE_IOMMU,
+			.name	= ION_IOMMU_HEAP_NAME,
+		},
+#endif
+	}
+};
+
+struct platform_device ion_dev = {
+	.name = "ion-msm",
+	.id = 1,
+	.dev = { .platform_data = &ion_pdata },
+};
+#endif
+
+static void reserve_ion_memory(void)
+{
+#if defined(CONFIG_ION_MSM) && defined(CONFIG_MSM_MULTIMEDIA_USE_ION)
+	msm8960_reserve_table[MEMTYPE_EBI1].size += MSM_ION_EBI_SIZE;
+	msm8960_reserve_table[MEMTYPE_EBI1].size += MSM_ION_ADSP_SIZE;
+#endif
+}
 static void __init msm8960_calculate_reserve_sizes(void)
 {
 	size_pmem_devices();
 	reserve_pmem_memory();
+	reserve_ion_memory();
 }
 
 static struct reserve_info msm8960_reserve_info __initdata = {
@@ -2804,14 +2875,19 @@ static struct platform_device *common_devices[] __initdata = {
 	&fish_battery_device,
 #endif
 #ifdef CONFIG_ANDROID_PMEM
+#ifndef CONFIG_MSM_MULTIMEDIA_USE_ION
 	&android_pmem_device,
 	&android_pmem_adsp_device,
+#endif
 	&android_pmem_audio_device,
 #endif
 	&msm_fb_device,
 	&msm_device_vidc,
 	&msm_device_bam_dmux,
 	&msm_fm_platform_init,
+#ifdef CONFIG_ION_MSM
+	&ion_dev,
+#endif
 };
 
 static struct platform_device *sim_devices[] __initdata = {
