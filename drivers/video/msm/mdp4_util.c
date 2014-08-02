@@ -24,9 +24,11 @@
 #include <linux/debugfs.h>
 #include <linux/semaphore.h>
 #include <linux/uaccess.h>
+#include <linux/msm_mdp.h>
 #include <asm/system.h>
 #include <asm/mach-types.h>
 #include <mach/hardware.h>
+#include <mach/iommu_domains.h>
 #include "mdp.h"
 #include "msm_fb.h"
 #include "mdp4.h"
@@ -275,6 +277,7 @@ void mdp4_hw_init(void)
 	mdp4_vg_csc_setup(1);
 	mdp4_mixer_csc_setup(1);
 	mdp4_mixer_csc_setup(2);
+	mdp4_dmap_csc_setup();
 
 	if (mdp_rev <= MDP_REV_41) {
 		mdp4_mixer_gc_lut_setup(0);
@@ -293,12 +296,6 @@ void mdp4_hw_init(void)
 
 	bits =  mdp_intr_mask;
 	outpdw(MDP_BASE + 0x0050, bits);/* enable specififed interrupts */
-
-	/* histogram */
-	MDP_OUTP(MDP_BASE + 0x95010, 1);	/* auto clear HIST */
-
-	/* enable histogram interrupts */
-	outpdw(MDP_BASE + 0x9501c, INTR_HIST_DONE);
 
 	/* For the max read pending cmd config below, if the MDP clock     */
 	/* is less than the AXI clock, then we must use 3 pending          */
@@ -361,6 +358,9 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 {
 	uint32 isr, mask, panel;
 	struct mdp_dma_data *dma;
+	struct mdp_hist_mgmt *mgmt = NULL;
+	char *base_addr;
+	int i, ret;
 
 	mdp_is_in_isr = TRUE;
 
@@ -382,12 +382,16 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 		/* When underun occurs mdp clear the histogram registers
 		that are set before in hw_init so restore them back so
 		that histogram works.*/
-		MDP_OUTP(MDP_BASE + 0x95010, 1);
-		outpdw(MDP_BASE + 0x9501c, INTR_HIST_DONE);
-		if (mdp_is_hist_start == TRUE) {
-			MDP_OUTP(MDP_BASE + 0x95004,
-					mdp_hist_frame_cnt);
-			MDP_OUTP(MDP_BASE + 0x95000, 1);
+		for (i = 0; i < MDP_HIST_MGMT_MAX; i++) {
+			mgmt = mdp_hist_mgmt_array[i];
+			if (!mgmt)
+				continue;
+			base_addr = MDP_BASE + mgmt->base;
+			MDP_OUTP(base_addr + 0x010, 1);
+			outpdw(base_addr + 0x01c, INTR_HIST_DONE |
+						INTR_HIST_RESET_SEQ_DONE);
+			mgmt->mdp_is_hist_valid = FALSE;
+			__mdp_histogram_reset(mgmt);
 		}
 	}
 
@@ -511,7 +515,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 			mdp_intr_mask &= ~INTR_DMA_P_DONE;
 			outp32(MDP_INTR_ENABLE, mdp_intr_mask);
 			dma->waiting = FALSE;
-			mdp4_dma_p_done_dsi_video();
+			mdp4_dma_p_done_dsi_video(dma);
 			spin_unlock(&mdp_spin_lock);
 		} else if (panel & MDP4_PANEL_DSI_CMD) {
 			mdp4_dma_p_done_dsi(dma);
@@ -553,7 +557,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 		mdp_intr_mask &= ~INTR_DMA_E_DONE;
 		outp32(MDP_INTR_ENABLE, mdp_intr_mask);
 		dma->busy = FALSE;
-
+		mdp4_dma_e_done_dtv();
 		if (dma->waiting) {
 			dma->waiting = FALSE;
 			complete(&dma->comp);
@@ -562,13 +566,27 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	}
 	if (isr & INTR_DMA_P_HISTOGRAM) {
 		mdp4_stat.intr_histogram++;
-		isr = inpdw(MDP_DMA_P_HIST_INTR_STATUS);
-		mask = inpdw(MDP_DMA_P_HIST_INTR_ENABLE);
-		outpdw(MDP_DMA_P_HIST_INTR_CLEAR, isr);
-		mb();
-		isr &= mask;
-		if (isr & INTR_HIST_DONE)
-			complete(&mdp_hist_comp);
+		ret = mdp_histogram_block2mgmt(MDP_BLOCK_DMA_P, &mgmt);
+		if (!ret)
+			mdp_histogram_handle_isr(mgmt);
+	}
+	if (isr & INTR_DMA_S_HISTOGRAM) {
+		mdp4_stat.intr_histogram++;
+		ret = mdp_histogram_block2mgmt(MDP_BLOCK_DMA_S, &mgmt);
+		if (!ret)
+			mdp_histogram_handle_isr(mgmt);
+	}
+	if (isr & INTR_VG1_HISTOGRAM) {
+		mdp4_stat.intr_histogram++;
+		ret = mdp_histogram_block2mgmt(MDP_BLOCK_VG_1, &mgmt);
+		if (!ret)
+			mdp_histogram_handle_isr(mgmt);
+	}
+	if (isr & INTR_VG2_HISTOGRAM) {
+		mdp4_stat.intr_histogram++;
+		ret = mdp_histogram_block2mgmt(MDP_BLOCK_VG_2, &mgmt);
+		if (!ret)
+			mdp_histogram_handle_isr(mgmt);
 	}
 
 out:
@@ -587,7 +605,7 @@ static uint32 vg_qseed_table0[] = {
 };
 
 static uint32 vg_qseed_table1[] = {
-	0x76543210, 0xfedcba98
+	0x00000000, 0x20000000,
 };
 
 static uint32 vg_qseed_table2[] = {
@@ -1222,15 +1240,60 @@ void mdp4_mixer_blend_init(mixer_num)
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
+struct mdp_csc_cfg mdp_csc_convert[4] = {
+	{ /*RGB2RGB*/
+		0,
+		{
+			0x0200, 0x0000, 0x0000,
+			0x0000, 0x0200, 0x0000,
+			0x0000, 0x0000, 0x0200,
+		},
+		{ 0x0, 0x0, 0x0, },
+		{ 0x0, 0x0, 0x0, },
+		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
+		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
+	},
+	{ /*YUV2RGB*/
+		0,
+		{
+			0x0254, 0x0000, 0x0331,
+			0x0254, 0xff37, 0xfe60,
+			0x0254, 0x0409, 0x0000,
+		},
+		{ 0xfff0, 0xff80, 0xff80, },
+		{ 0x0, 0x0, 0x0, },
+		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
+		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
+	},
+	{ /*RGB2YUV*/
+		0,
+		{
+			0x0083, 0x0102, 0x0032,
+			0x1fb5, 0x1f6c, 0x00e1,
+			0x00e1, 0x1f45, 0x1fdc
+		},
+		{ 0x0, 0x0, 0x0, },
+		{ 0x0010, 0x0080, 0x0080, },
+		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
+		{ 0x0010, 0x00eb, 0x0010, 0x00f0, 0x0010, 0x00f0, },
+	},
+	{ /*YUV2YUV ???*/
+		0,
+		{
+			0x0200, 0x0000, 0x0000,
+			0x0000, 0x0200, 0x0000,
+			0x0000, 0x0000, 0x0200,
+		},
+		{ 0x0, 0x0, 0x0, },
+		{ 0x0, 0x0, 0x0, },
+		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
+		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
+	},
+};
 
-struct mdp4_csc_matrix {
-uint32 csc_mv[9];
-uint32 csc_pre_bv[3];
-uint32 csc_post_bv[3];
-uint32 csc_pre_lv[6];
-uint32 csc_post_lv[6];
-} csc_matrix[2] = {
+struct mdp_csc_cfg csc_matrix[3] = {
 	{
+		(MDP_CSC_FLAG_YUV_OUT),
 		{
 			0x0254, 0x0000, 0x0331,
 			0x0254, 0xff37, 0xfe60,
@@ -1250,6 +1313,7 @@ uint32 csc_post_lv[6];
 		},
 	},
 	{
+		(MDP_CSC_FLAG_YUV_OUT),
 		{
 			0x0254, 0x0000, 0x0331,
 			0x0254, 0xff37, 0xfe60,
@@ -1257,6 +1321,26 @@ uint32 csc_post_lv[6];
 		},
 		{
 			0xfff0, 0xff80, 0xff80,
+		},
+		{
+			0, 0, 0,
+		},
+		{
+			0, 0xff, 0, 0xff, 0, 0xff,
+		},
+		{
+			0, 0xff, 0, 0xff, 0, 0xff,
+		},
+	},
+	{
+		(0),
+		{
+			0x0200, 0x0000, 0x0000,
+			0x0000, 0x0200, 0x0000,
+			0x0000, 0x0000, 0x0200,
+		},
+		{
+			0x0, 0x0, 0x0,
 		},
 		{
 			0, 0, 0,
@@ -1363,6 +1447,25 @@ void mdp4_vg_csc_post_lv_setup(int vp_num)
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
+void mdp4_vg_csc_convert_setup(int vp_num)
+{
+	struct mdp_csc_cfg_data cfg;
+
+	switch (vp_num) {
+	case 0:
+		cfg.block = MDP_BLOCK_VG_1;
+		break;
+	case 1:
+		cfg.block = MDP_BLOCK_VG_2;
+		break;
+	default:
+		pr_err("%s - invalid vp_num = %d", __func__, vp_num);
+		return;
+	}
+	cfg.csc_data = csc_matrix[vp_num];
+	mdp4_csc_enable(&cfg);
+}
+
 void mdp4_vg_csc_setup(int vp_num)
 {
 		/* yuv2rgb */
@@ -1371,6 +1474,7 @@ void mdp4_vg_csc_setup(int vp_num)
 		mdp4_vg_csc_post_bv_setup(vp_num);
 		mdp4_vg_csc_pre_lv_setup(vp_num);
 		mdp4_vg_csc_post_lv_setup(vp_num);
+		mdp4_vg_csc_convert_setup(vp_num);
 }
 void mdp4_vg_csc_update(struct mdp_csc *p)
 {
@@ -1518,6 +1622,91 @@ void mdp4_mixer_csc_setup(uint32 mixer)
 		mdp4_mixer_csc_pre_lv_setup(mixer);
 		mdp4_mixer_csc_post_lv_setup(mixer);
 	}
+}
+
+#define DMA_P_BASE 0x90000
+void mdp4_dmap_csc_mv_setup(void)
+{
+	uint32 *off;
+	int i;
+
+	off = (uint32 *)(MDP_BASE + DMA_P_BASE + 0x3400);
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	for (i = 0; i < 9; i++) {
+		outpdw(off, csc_matrix[2].csc_mv[i]);
+		off++;
+	}
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+}
+
+void mdp4_dmap_csc_pre_bv_setup(void)
+{
+	uint32 *off;
+	int i;
+
+	off = (uint32 *)(MDP_BASE + DMA_P_BASE + 0x3500);
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	for (i = 0; i < 3; i++) {
+		outpdw(off, csc_matrix[2].csc_pre_bv[i]);
+		off++;
+	}
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+}
+
+void mdp4_dmap_csc_post_bv_setup(void)
+{
+	uint32 *off;
+	int i;
+
+	off = (uint32 *)(MDP_BASE + DMA_P_BASE + 0x3580);
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	for (i = 0; i < 3; i++) {
+		outpdw(off, csc_matrix[2].csc_post_bv[i]);
+		off++;
+	}
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+}
+
+void mdp4_dmap_csc_pre_lv_setup(void)
+{
+	uint32 *off;
+	int i;
+
+	off = (uint32 *)(MDP_BASE + DMA_P_BASE + 0x3600);
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	for (i = 0; i < 6; i++) {
+		outpdw(off, csc_matrix[2].csc_pre_lv[i]);
+		off++;
+	}
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+}
+
+void mdp4_dmap_csc_post_lv_setup(void)
+{
+	uint32 *off;
+	int i;
+
+	off = (uint32 *)(MDP_BASE + DMA_P_BASE + 0x3680);
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	for (i = 0; i < 6; i++) {
+		outpdw(off, csc_matrix[2].csc_post_lv[i]);
+		off++;
+	}
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+}
+
+void mdp4_dmap_csc_setup(void)
+{
+	mdp4_dmap_csc_mv_setup();
+	mdp4_dmap_csc_pre_bv_setup();
+	mdp4_dmap_csc_post_bv_setup();
+	mdp4_dmap_csc_pre_lv_setup();
+	mdp4_dmap_csc_post_lv_setup();
 }
 
 char gc_lut[] = {
@@ -2217,6 +2406,136 @@ uint32_t mdp4_ss_table_value(int8_t value, int8_t index)
 	return out;
 }
 
+static uint32_t mdp4_csc_block2base(uint32_t block)
+{
+	uint32_t base = 0x0;
+	switch (block) {
+	case MDP_BLOCK_OVERLAY_1:
+		base = 0x1A000;
+		break;
+	case MDP_BLOCK_VG_1:
+		base = 0x24000;
+		break;
+	case MDP_BLOCK_VG_2:
+		base = 0x34000;
+		break;
+	case MDP_BLOCK_DMA_P:
+		base = 0x93000;
+		break;
+	case MDP_BLOCK_DMA_S:
+		base = (mdp_rev >= MDP_REV_42) ? 0xA3000 : 0x0;
+	default:
+		break;
+	}
+	return base;
+}
+
+int mdp4_csc_enable(struct mdp_csc_cfg_data *config)
+{
+	uint32_t output, base, temp, mask;
+
+	switch (config->block) {
+	case MDP_BLOCK_DMA_P:
+		base = 0x90070;
+		output = (config->csc_data.flags << 3) & (0x08);
+		temp = (config->csc_data.flags << 10) & (0x1800);
+		output |= temp;
+		mask = 0x08 | 0x1800;
+		break;
+	case MDP_BLOCK_DMA_S:
+		base = 0xA0028;
+		output = (config->csc_data.flags << 3) & (0x08);
+		temp = (config->csc_data.flags << 10) & (0x1800);
+		output |= temp;
+		mask = 0x08 | 0x1800;
+		break;
+	case MDP_BLOCK_VG_1:
+		base = 0x20058;
+		output = (config->csc_data.flags << 11) & (0x800);
+		temp = (config->csc_data.flags << 8) & (0x600);
+		output |= temp;
+		mask = 0x800 | 0x600;
+		break;
+	case MDP_BLOCK_VG_2:
+		base = 0x30058;
+		output = (config->csc_data.flags << 11) & (0x800);
+		temp = (config->csc_data.flags << 8) & (0x600);
+		output |= temp;
+		mask = 0x800 | 0x600;
+		break;
+	case MDP_BLOCK_OVERLAY_1:
+		base = 0x18200;
+		output = config->csc_data.flags;
+		mask = 0x07;
+		break;
+	default:
+		pr_err("%s - CSC block does not exist on MDP_BLOCK = %d\n",
+						__func__, config->block);
+		return -EINVAL;
+	}
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	temp = inpdw(MDP_BASE + base) & ~mask;
+	output |= temp;
+	outpdw(MDP_BASE + base, output);
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+	return 0;
+}
+
+#define CSC_MV_OFF	0x400
+#define CSC_BV_OFF	0x500
+#define CSC_LV_OFF	0x600
+#define CSC_POST_OFF	0x80
+
+void mdp4_csc_write(struct mdp_csc_cfg *data, uint32_t base)
+{
+	int i;
+	uint32_t *off;
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	off = (uint32_t *) ((uint32_t) base + CSC_MV_OFF);
+	for (i = 0; i < 9; i++) {
+		outpdw(off, data->csc_mv[i]);
+		off++;
+	}
+
+	off = (uint32_t *) ((uint32_t) base + CSC_BV_OFF);
+	for (i = 0; i < 3; i++) {
+		outpdw(off, data->csc_pre_bv[i]);
+		outpdw((uint32_t *)((uint32_t)off + CSC_POST_OFF),
+					data->csc_post_bv[i]);
+		off++;
+	}
+
+	off = (uint32_t *) ((uint32_t) base + CSC_LV_OFF);
+	for (i = 0; i < 6; i++) {
+		outpdw(off, data->csc_pre_lv[i]);
+		outpdw((uint32_t *)((uint32_t)off + CSC_POST_OFF),
+					data->csc_post_lv[i]);
+		off++;
+	}
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+}
+
+int mdp4_csc_config(struct mdp_csc_cfg_data *config)
+{
+	int ret = 0;
+	uint32_t base;
+
+	base = mdp4_csc_block2base(config->block);
+	if (!base) {
+		pr_warn("%s: Block type %d isn't supported by CSC.\n",
+				__func__, config->block);
+		return -EINVAL;
+	}
+
+	mdp4_csc_write(&config->csc_data, (uint32_t) (MDP_BASE + base));
+
+	ret = mdp4_csc_enable(config);
+
+	return ret;
+}
+
 void mdp4_init_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num)
 {
 	struct mdp_buf_type *buf;
@@ -2234,7 +2553,7 @@ u32 mdp4_allocate_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num)
 {
 	struct mdp_buf_type *buf;
 	ion_phys_addr_t	addr;
-	u32 len;
+	unsigned long len;
 
 	if (mix_num == MDP4_MIXER0)
 		buf = mfd->ov0_wb_buf;
@@ -2245,23 +2564,24 @@ u32 mdp4_allocate_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num)
 		return 0;
 
 	if (!buf->size) {
-		pr_err("%s:%d In valid size", __func__, __LINE__);
+		pr_err("%s:%d In valid size\n", __func__, __LINE__);
 		return -EINVAL;
 	}
 
 	if (!IS_ERR_OR_NULL(mfd->iclient)) {
-		pr_info("%s:%d ion based allocation", __func__, __LINE__);
-		buf->ihdl = ion_alloc(mfd->iclient, buf->size, 4,
-			(1 << mfd->mem_hid));
+		pr_info("%s:%d ion based allocation mfd->mem_hid 0x%x\n",
+			__func__, __LINE__, mfd->mem_hid);
+		buf->ihdl = ion_alloc(mfd->iclient, buf->size, SZ_4K,
+			mfd->mem_hid);
 		if (!IS_ERR_OR_NULL(buf->ihdl)) {
-			if (ion_phys(mfd->iclient, buf->ihdl,
-				&addr, &len)) {
-				pr_err("%s:%d: ion_phys map failed",
-					__func__, __LINE__);
+			if (ion_map_iommu(mfd->iclient, buf->ihdl,
+				DISPLAY_DOMAIN, GEN_POOL, SZ_4K, 0, &addr,
+				&len, 0, 0)) {
+				pr_err("ion_map_iommu() failed\n");
 				return -ENOMEM;
 			}
 		} else {
-			pr_err("%s:%d: ion_alloc failed", __func__,
+			pr_err("%s:%d: ion_alloc failed\n", __func__,
 				__LINE__);
 			return -ENOMEM;
 		}
@@ -2291,14 +2611,587 @@ void mdp4_free_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num)
 		buf = mfd->ov1_wb_buf;
 
 	if (!IS_ERR_OR_NULL(mfd->iclient)) {
-		if (!IS_ERR_OR_NULL(buf->ihdl))
+		if (!IS_ERR_OR_NULL(buf->ihdl)) {
+			ion_unmap_iommu(mfd->iclient, buf->ihdl,
+				DISPLAY_DOMAIN, GEN_POOL);
 			ion_free(mfd->iclient, buf->ihdl);
-		buf->ihdl = NULL;
-		pr_info("%s:%d free writeback imem", __func__, __LINE__);
+			pr_info("%s:%d free writeback imem\n", __func__,
+				__LINE__);
+			buf->ihdl = NULL;
+		}
 	} else {
-		if (buf->phys_addr)
+		if (buf->phys_addr) {
 			free_contiguous_memory_by_paddr(buf->phys_addr);
-		pr_info("%s:%d free writeback pmem", __func__, __LINE__);
+			pr_info("%s:%d free writeback pmem\n", __func__,
+				__LINE__);
+		}
 	}
 	buf->phys_addr = 0;
+}
+
+static int mdp4_update_pcc_regs(uint32_t offset,
+				struct mdp_pcc_cfg_data *cfg_ptr)
+{
+	int ret = -1;
+
+	if (offset && cfg_ptr) {
+
+		outpdw(offset, cfg_ptr->r.c);
+		outpdw(offset + 0x30, cfg_ptr->g.c);
+		outpdw(offset + 0x60, cfg_ptr->b.c);
+		offset += 4;
+
+		outpdw(offset, cfg_ptr->r.r);
+		outpdw(offset + 0x30, cfg_ptr->g.r);
+		outpdw(offset + 0x60, cfg_ptr->b.r);
+		offset += 4;
+
+		outpdw(offset, cfg_ptr->r.g);
+		outpdw(offset + 0x30, cfg_ptr->g.g);
+		outpdw(offset + 0x60, cfg_ptr->b.g);
+		offset += 4;
+
+		outpdw(offset, cfg_ptr->r.b);
+		outpdw(offset + 0x30, cfg_ptr->g.b);
+		outpdw(offset + 0x60, cfg_ptr->b.b);
+		offset += 4;
+
+		outpdw(offset, cfg_ptr->r.rr);
+		outpdw(offset + 0x30, cfg_ptr->g.rr);
+		outpdw(offset + 0x60, cfg_ptr->b.rr);
+		offset += 4;
+
+		outpdw(offset, cfg_ptr->r.gg);
+		outpdw(offset + 0x30, cfg_ptr->g.gg);
+		outpdw(offset + 0x60, cfg_ptr->b.gg);
+		offset += 4;
+
+		outpdw(offset, cfg_ptr->r.bb);
+		outpdw(offset + 0x30, cfg_ptr->g.bb);
+		outpdw(offset + 0x60, cfg_ptr->b.bb);
+		offset += 4;
+
+		outpdw(offset, cfg_ptr->r.rg);
+		outpdw(offset + 0x30, cfg_ptr->g.rg);
+		outpdw(offset + 0x60, cfg_ptr->b.rg);
+		offset += 4;
+
+		outpdw(offset, cfg_ptr->r.gb);
+		outpdw(offset + 0x30, cfg_ptr->g.gb);
+		outpdw(offset + 0x60, cfg_ptr->b.gb);
+		offset += 4;
+
+		outpdw(offset, cfg_ptr->r.rb);
+		outpdw(offset + 0x30, cfg_ptr->g.rb);
+		outpdw(offset + 0x60, cfg_ptr->b.rb);
+		offset += 4;
+
+		outpdw(offset, cfg_ptr->r.rgb_0);
+		outpdw(offset + 0x30, cfg_ptr->g.rgb_0);
+		outpdw(offset + 0x60, cfg_ptr->b.rgb_0);
+		offset += 4;
+
+		outpdw(offset, cfg_ptr->r.rgb_1);
+		outpdw(offset + 0x30, cfg_ptr->g.rgb_1);
+		outpdw(offset + 0x60, cfg_ptr->b.rgb_1);
+
+		ret = 0;
+	}
+
+	return ret;
+}
+
+static int mdp4_read_pcc_regs(uint32_t offset,
+				struct mdp_pcc_cfg_data *cfg_ptr)
+{
+	int ret = -1;
+
+	if (offset && cfg_ptr) {
+		cfg_ptr->r.c = inpdw(offset);
+		cfg_ptr->g.c = inpdw(offset + 0x30);
+		cfg_ptr->b.c = inpdw(offset + 0x60);
+		offset += 4;
+
+		cfg_ptr->r.r = inpdw(offset);
+		cfg_ptr->g.r = inpdw(offset + 0x30);
+		cfg_ptr->b.r = inpdw(offset + 0x60);
+		offset += 4;
+
+		cfg_ptr->r.g = inpdw(offset);
+		cfg_ptr->g.g = inpdw(offset + 0x30);
+		cfg_ptr->b.g = inpdw(offset + 0x60);
+		offset += 4;
+
+		cfg_ptr->r.b = inpdw(offset);
+		cfg_ptr->g.b = inpdw(offset + 0x30);
+		cfg_ptr->b.b = inpdw(offset + 0x60);
+		offset += 4;
+
+		cfg_ptr->r.rr = inpdw(offset);
+		cfg_ptr->g.rr = inpdw(offset + 0x30);
+		cfg_ptr->b.rr = inpdw(offset + 0x60);
+		offset += 4;
+
+		cfg_ptr->r.gg = inpdw(offset);
+		cfg_ptr->g.gg = inpdw(offset + 0x30);
+		cfg_ptr->b.gg = inpdw(offset + 0x60);
+		offset += 4;
+
+		cfg_ptr->r.bb = inpdw(offset);
+		cfg_ptr->g.bb = inpdw(offset + 0x30);
+		cfg_ptr->b.bb = inpdw(offset + 0x60);
+		offset += 4;
+
+		cfg_ptr->r.rg = inpdw(offset);
+		cfg_ptr->g.rg = inpdw(offset + 0x30);
+		cfg_ptr->b.rg = inpdw(offset + 0x60);
+		offset += 4;
+
+		cfg_ptr->r.gb = inpdw(offset);
+		cfg_ptr->g.gb = inpdw(offset + 0x30);
+		cfg_ptr->b.gb = inpdw(offset + 0x60);
+		offset += 4;
+
+		cfg_ptr->r.rb = inpdw(offset);
+		cfg_ptr->g.rb = inpdw(offset + 0x30);
+		cfg_ptr->b.rb = inpdw(offset + 0x60);
+		offset += 4;
+
+		cfg_ptr->r.rgb_0 = inpdw(offset);
+		cfg_ptr->g.rgb_0 = inpdw(offset + 0x30);
+		cfg_ptr->b.rgb_0 = inpdw(offset + 0x60);
+		offset += 4;
+
+		cfg_ptr->r.rgb_1 = inpdw(offset);
+		cfg_ptr->g.rgb_1 = inpdw(offset + 0x30);
+		cfg_ptr->b.rgb_1 = inpdw(offset + 0x60);
+
+		ret = 0;
+	}
+
+	return ret;
+}
+
+
+#define MDP_PCC_OFFSET 0xA000
+#define MDP_DMA_GC_OFFSET 0x8800
+#define MDP_LM_GC_OFFSET 0x4800
+
+#define MDP_DMA_P_OP_MODE_OFFSET 0x70
+#define MDP_DMA_S_OP_MODE_OFFSET 0x28
+#define MDP_LM_OP_MODE_OFFSET 0x14
+
+#define DMA_PCC_R2_OFFSET 0x100
+
+#define MDP_GC_COLOR_OFFSET	0x100
+#define MDP_GC_PARMS_OFFSET	0x80
+
+#define MDP_AR_GC_MAX_STAGES	16
+
+static uint32_t mdp_pp_block2pcc(uint32_t block)
+{
+	uint32_t valid = 0;
+
+	switch (block) {
+	case MDP_BLOCK_DMA_P:
+	case MDP_BLOCK_DMA_S:
+		valid = (mdp_rev >= MDP_REV_42) ? 1 : 0;
+		break;
+
+	default:
+		break;
+	}
+
+	return valid;
+}
+
+int mdp4_pcc_cfg(struct mdp_pcc_cfg_data *cfg_ptr)
+{
+	int ret = -1;
+	uint32_t pcc_offset = 0, mdp_cfg_offset = 0;
+	uint32_t mdp_dma_op_mode = 0;
+	uint32_t blockbase;
+
+	if (!mdp_pp_block2pcc(cfg_ptr->block))
+		return ret;
+
+	blockbase = mdp_block2base(cfg_ptr->block);
+	if (!blockbase)
+		return ret;
+
+	blockbase += (uint32_t) MDP_BASE;
+
+	switch (cfg_ptr->block) {
+	case MDP_BLOCK_DMA_P:
+	case MDP_BLOCK_DMA_S:
+		pcc_offset = blockbase + MDP_PCC_OFFSET;
+		mdp_cfg_offset = blockbase;
+		mdp_dma_op_mode = blockbase +
+			(MDP_BLOCK_DMA_P == cfg_ptr->block ?
+			 MDP_DMA_P_OP_MODE_OFFSET
+			 : MDP_DMA_S_OP_MODE_OFFSET);
+		break;
+
+	default:
+		break;
+	}
+
+	if (0x8 & cfg_ptr->ops)
+		pcc_offset += DMA_PCC_R2_OFFSET;
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
+	switch ((0x6 & cfg_ptr->ops)>>1) {
+	case 0x1:
+		ret = mdp4_read_pcc_regs(pcc_offset, cfg_ptr);
+		break;
+
+	case 0x2:
+		ret = mdp4_update_pcc_regs(pcc_offset, cfg_ptr);
+		break;
+
+	default:
+		break;
+	}
+
+	if (0x8 & cfg_ptr->ops)
+		outpdw(mdp_dma_op_mode,
+			((inpdw(mdp_dma_op_mode) & ~(0x1<<10)) |
+						((0x8 & cfg_ptr->ops)<<10)));
+
+	outpdw(mdp_cfg_offset,
+			((inpdw(mdp_cfg_offset) & ~(0x1<<29)) |
+						((cfg_ptr->ops & 0x1)<<29)));
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+	return ret;
+}
+
+static uint32_t mdp_pp_block2argc(uint32_t block)
+{
+	uint32_t valid = 0;
+
+	switch (block) {
+	case MDP_BLOCK_DMA_P:
+	case MDP_BLOCK_DMA_S:
+	case MDP_BLOCK_OVERLAY_0:
+	case MDP_BLOCK_OVERLAY_1:
+		valid = (mdp_rev >= MDP_REV_42) ? 1 : 0;
+		break;
+
+	default:
+		break;
+	}
+
+	return valid;
+}
+
+static int update_ar_gc_lut(uint32_t *offset, struct mdp_pgc_lut_data *lut_data)
+{
+	int count = 0;
+
+	uint32_t *c0_offset = offset;
+	uint32_t *c0_params_offset = (uint32_t *)((uint32_t)c0_offset
+							+ MDP_GC_PARMS_OFFSET);
+
+	uint32_t *c1_offset = (uint32_t *)((uint32_t)offset
+							+ MDP_GC_COLOR_OFFSET);
+
+	uint32_t *c1_params_offset = (uint32_t *)((uint32_t)c1_offset
+							+ MDP_GC_PARMS_OFFSET);
+
+	uint32_t *c2_offset = (uint32_t *)((uint32_t)offset
+						+ 2*MDP_GC_COLOR_OFFSET);
+
+	uint32_t *c2_params_offset = (uint32_t *)((uint32_t)c2_offset
+						+MDP_GC_PARMS_OFFSET);
+
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	for (count = 0; count < MDP_AR_GC_MAX_STAGES; count++) {
+		if (count < lut_data->num_r_stages) {
+			outpdw(c0_offset+count,
+				((0xfff & lut_data->r_data[count].x_start)
+					| 0x10000));
+
+			outpdw(c0_params_offset+count,
+				((0x7fff & lut_data->r_data[count].slope)
+					| ((0xffff
+					& lut_data->r_data[count].offset)
+						<< 16)));
+		} else
+			outpdw(c0_offset+count, 0);
+
+		if (count < lut_data->num_b_stages) {
+			outpdw(c1_offset+count,
+				((0xfff & lut_data->b_data[count].x_start)
+					| 0x10000));
+
+			outpdw(c1_params_offset+count,
+				((0x7fff & lut_data->b_data[count].slope)
+					| ((0xffff
+					& lut_data->b_data[count].offset)
+						<< 16)));
+		} else
+			outpdw(c1_offset+count, 0);
+
+		if (count < lut_data->num_g_stages) {
+			outpdw(c2_offset+count,
+				((0xfff & lut_data->g_data[count].x_start)
+					| 0x10000));
+
+			outpdw(c2_params_offset+count,
+				((0x7fff & lut_data->g_data[count].slope)
+				| ((0xffff
+				& lut_data->g_data[count].offset)
+					<< 16)));
+		} else
+			outpdw(c2_offset+count, 0);
+	}
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+	return 0;
+}
+
+static int mdp4_argc_process_write_req(uint32_t *offset,
+		struct mdp_pgc_lut_data *pgc_ptr)
+{
+	int ret = -1;
+	struct mdp_ar_gc_lut_data r[MDP_AR_GC_MAX_STAGES];
+	struct mdp_ar_gc_lut_data g[MDP_AR_GC_MAX_STAGES];
+	struct mdp_ar_gc_lut_data b[MDP_AR_GC_MAX_STAGES];
+
+	ret = copy_from_user(&r[0], pgc_ptr->r_data,
+		pgc_ptr->num_r_stages * sizeof(struct mdp_ar_gc_lut_data));
+
+	if (!ret) {
+		ret = copy_from_user(&g[0],
+				pgc_ptr->g_data,
+				pgc_ptr->num_g_stages
+				* sizeof(struct mdp_ar_gc_lut_data));
+		if (!ret)
+			ret = copy_from_user(&b[0],
+					pgc_ptr->b_data,
+					pgc_ptr->num_b_stages
+					* sizeof(struct mdp_ar_gc_lut_data));
+	}
+
+	if (ret)
+		return ret;
+
+	pgc_ptr->r_data = &r[0];
+	pgc_ptr->g_data = &g[0];
+	pgc_ptr->b_data = &b[0];
+
+	ret = update_ar_gc_lut(offset, pgc_ptr);
+	return ret;
+}
+
+int mdp4_argc_cfg(struct mdp_pgc_lut_data *pgc_ptr)
+{
+	int ret = -1;
+	uint32_t *offset = 0, *pgc_enable_offset = 0, lshift_bits = 0;
+	uint32_t blockbase;
+
+	if (!mdp_pp_block2argc(pgc_ptr->block))
+		return ret;
+
+	blockbase = mdp_block2base(pgc_ptr->block);
+	if (!blockbase)
+		return ret;
+
+	blockbase += (uint32_t) MDP_BASE;
+	ret = 0;
+
+	switch (pgc_ptr->block) {
+	case MDP_BLOCK_DMA_P:
+	case MDP_BLOCK_DMA_S:
+		offset = (uint32_t *)(blockbase + MDP_DMA_GC_OFFSET);
+		pgc_enable_offset = (uint32_t *) blockbase;
+		lshift_bits = 28;
+		break;
+
+	case MDP_BLOCK_OVERLAY_0:
+	case MDP_BLOCK_OVERLAY_1:
+		offset = (uint32_t *)(blockbase + MDP_LM_GC_OFFSET);
+		pgc_enable_offset = (uint32_t *)(blockbase
+				+ MDP_LM_OP_MODE_OFFSET);
+		lshift_bits = 2;
+		break;
+
+	default:
+		ret = -1;
+		break;
+	}
+
+	if (!ret) {
+
+		switch ((0x6 & pgc_ptr->flags)>>1) {
+		case 0x1:
+			ret = -ENOTTY;
+			break;
+
+		case 0x2:
+			ret = mdp4_argc_process_write_req(offset, pgc_ptr);
+			break;
+
+		default:
+			break;
+		}
+
+		if (!ret) {
+			mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+			outpdw(pgc_enable_offset, (inpdw(pgc_enable_offset) &
+							~(0x1<<lshift_bits)) |
+				((0x1 & pgc_ptr->flags) << lshift_bits));
+			mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF,
+									FALSE);
+		}
+	}
+
+	return ret;
+}
+
+static uint32_t mdp4_pp_block2igc(uint32_t block)
+{
+	uint32_t valid = 0;
+	switch (block) {
+	case MDP_BLOCK_VG_1:
+		valid = 0x1;
+		break;
+	case MDP_BLOCK_VG_2:
+		valid = 0x1;
+		break;
+	case MDP_BLOCK_RGB_1:
+		valid = 0x1;
+		break;
+	case MDP_BLOCK_RGB_2:
+		valid = 0x1;
+		break;
+	case MDP_BLOCK_DMA_P:
+		valid = (mdp_rev >= MDP_REV_40) ? 1 : 0;
+		break;
+	case MDP_BLOCK_DMA_S:
+		valid = (mdp_rev >= MDP_REV_40) ? 1 : 0;
+		break;
+	default:
+		break;
+	}
+	return valid;
+}
+
+static int mdp4_igc_lut_write(struct mdp_igc_lut_data *cfg, uint32_t en_off,
+		uint32_t lut_off)
+{
+	int i;
+	uint32_t base, *off_low, *off_high;
+	uint32_t low[cfg->len];
+	uint32_t high[cfg->len];
+
+	base = mdp_block2base(cfg->block);
+
+	if (cfg->len != 256)
+		return -EINVAL;
+
+	off_low = (uint32_t *)(MDP_BASE + base + lut_off);
+	off_high = (uint32_t *)(MDP_BASE + base + lut_off + 0x800);
+	if (copy_from_user(&low, cfg->c0_c1_data, cfg->len * sizeof(uint32_t)))
+		return -EFAULT;
+	if (copy_from_user(&high, cfg->c2_data, cfg->len * sizeof(uint32_t)))
+		return -EFAULT;
+
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	for (i = 0; i < cfg->len; i++) {
+		MDP_OUTP(off_low++, low[i]);
+		/*low address write should occur before high address write*/
+		wmb();
+		MDP_OUTP(off_high++, high[i]);
+	}
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+	return 0;
+}
+
+static int mdp4_igc_lut_ctrl(struct mdp_igc_lut_data *cfg)
+{
+	uint32_t mask, out;
+	uint32_t base = mdp_block2base(cfg->block);
+	int8_t shift = 0;
+
+	switch (cfg->block) {
+	case MDP_BLOCK_DMA_P:
+	case MDP_BLOCK_DMA_S:
+		base = base;
+		shift = 30;
+		break;
+	case MDP_BLOCK_VG_1:
+	case MDP_BLOCK_VG_2:
+	case MDP_BLOCK_RGB_1:
+	case MDP_BLOCK_RGB_2:
+		base += 0x58;
+		shift = 16;
+		break;
+	default:
+		return -EINVAL;
+
+	}
+	out = 1<<shift;
+	mask = ~out;
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+	out = inpdw(MDP_BASE + base) & mask;
+	MDP_OUTP(MDP_BASE + base, out | ((cfg->ops & 0x1)<<shift));
+	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
+
+	return 0;
+}
+
+static int mdp4_igc_lut_write_cfg(struct mdp_igc_lut_data *cfg)
+{
+	int ret = 0;
+
+	switch (cfg->block) {
+	case MDP_BLOCK_DMA_P:
+	case MDP_BLOCK_DMA_S:
+		ret = mdp4_igc_lut_write(cfg, 0x00, 0x9000);
+		break;
+	case MDP_BLOCK_VG_1:
+	case MDP_BLOCK_VG_2:
+	case MDP_BLOCK_RGB_1:
+	case MDP_BLOCK_RGB_2:
+		ret = mdp4_igc_lut_write(cfg, 0x58, 0x5000);
+		break;
+	default:
+		ret = -EINVAL;
+	}
+
+	return ret;
+}
+
+int mdp4_igc_lut_config(struct mdp_igc_lut_data *cfg)
+{
+	int ret = 0;
+
+	if (!mdp4_pp_block2igc(cfg->block)) {
+		ret = -ENOTTY;
+		goto error;
+	}
+
+	switch ((cfg->ops & 0x6) >> 1) {
+	case 0x1:
+		pr_info("%s: IGC LUT read not supported\n", __func__);
+		break;
+	case 0x2:
+		ret = mdp4_igc_lut_write_cfg(cfg);
+		if (ret)
+			goto error;
+		break;
+	default:
+		break;
+	}
+
+	ret = mdp4_igc_lut_ctrl(cfg);
+
+error:
+	return ret;
 }

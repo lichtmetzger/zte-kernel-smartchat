@@ -39,6 +39,7 @@
 #include "linux/proc_fs.h"
 
 #include <mach/hardware.h>
+#include <mach/msm_subsystem_map.h>
 #include <linux/io.h>
 #include <mach/board.h>
 
@@ -49,6 +50,7 @@
 #include <linux/spinlock.h>
 #include <linux/workqueue.h>
 #include <linux/hrtimer.h>
+#include <linux/wakelock.h>
 
 #include <linux/fb.h>
 #include <linux/list.h>
@@ -58,6 +60,9 @@
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
 #endif
+
+/*  Idle wakelock to prevent PC between wake up and Vsync */
+extern struct wake_lock mdp_idle_wakelock;
 
 #include "msm_fb_panel.h"
 #include "mdp.h"
@@ -215,7 +220,7 @@ struct msm_fb_data_type {
 	int (*lut_update) (struct fb_info *info,
 			      struct fb_cmap *cmap);
 	int (*do_histogram) (struct fb_info *info,
-			      struct mdp_histogram *hist);
+			      struct mdp_histogram_data *hist);
 	void *cursor_buf;
 	void *cursor_buf_phys;
 
@@ -230,6 +235,7 @@ struct msm_fb_data_type {
 	__u32 var_xres;
 	__u32 var_yres;
 	__u32 var_pixclock;
+	__u32 var_frame_rate;
 
 #ifdef MSM_FB_ENABLE_DBGFS
 	struct dentry *sub_dir;
@@ -256,12 +262,15 @@ struct msm_fb_data_type {
 	struct list_head writeback_register_queue;
 	wait_queue_head_t wait_q;
 	struct ion_client *iclient;
+	struct msm_mapped_buffer *map_buffer;
 	struct mdp_buf_type *ov0_wb_buf;
 	struct mdp_buf_type *ov1_wb_buf;
 	u32 ov_start;
 	u32 mem_hid;
 	u32 mdp_rev;
 	u32 use_ov0_blt, ov0_blt_state;
+	u32 use_ov1_blt, ov1_blt_state;
+	u32 writeback_state;
 };
 
 struct dentry *msm_fb_get_debugfs_root(void);
@@ -273,16 +282,15 @@ void msm_fb_set_backlight(struct msm_fb_data_type *mfd, __u32 bkl_lvl,
 struct platform_device *msm_fb_add_device(struct platform_device *pdev);
 struct fb_info *msm_fb_get_writeback_fb(void);
 int msm_fb_writeback_init(struct fb_info *info);
-int msm_fb_writeback_register_buffer(struct fb_info *info,
-		struct msmfb_writeback_data *data);
+int msm_fb_writeback_start(struct fb_info *info);
 int msm_fb_writeback_queue_buffer(struct fb_info *info,
 		struct msmfb_data *data);
 int msm_fb_writeback_dequeue_buffer(struct fb_info *info,
 		struct msmfb_data *data);
-int msm_fb_writeback_unregister_buffer(struct fb_info *info,
-		struct msmfb_writeback_data *data);
+int msm_fb_writeback_stop(struct fb_info *info);
 int msm_fb_writeback_terminate(struct fb_info *info);
 int msm_fb_detect_client(const char *name);
+int calc_fb_offset(struct msm_fb_data_type *mfd, struct fb_info *fbi, int bpp);
 
 #ifdef CONFIG_FB_BACKLIGHT
 void msm_fb_config_backlight(struct msm_fb_data_type *mfd);
@@ -290,5 +298,7 @@ void msm_fb_config_backlight(struct msm_fb_data_type *mfd);
 
 void fill_black_screen(void);
 void unfill_black_screen(void);
+int msm_fb_check_frame_rate(struct msm_fb_data_type *mfd,
+				struct fb_info *info);
 
 #endif /* MSM_FB_H */

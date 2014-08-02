@@ -116,6 +116,7 @@ obj-$(CONFIG_FB_MSM_MIPI_LEAD_VIDEO_WVGA_PT) += mipi_lead_video_wvga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_VIDEO_HVGA_PT) += mipi_n855_video_hvga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_VIDEO_ROAMER2_HVGA_PT) += mipi_P752D01_HVGA35_video_hvga_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WSVGA_PT) += mipi_toshiba_video_wsvga_pt.o
+obj-$(CONFIG_FB_MSM_MIPI_TOSHIBA_VIDEO_WUXGA) += mipi_toshiba_video_wuxga.o
 obj-$(CONFIG_FB_MSM_MIPI_NOVATEK_VIDEO_QHD_PT) += mipi_novatek_video_qhd_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_NOVATEK_CMD_QHD_PT) += mipi_novatek_cmd_qhd_pt.o
 obj-$(CONFIG_FB_MSM_MIPI_RENESAS_VIDEO_FWVGA_PT) += mipi_renesas_video_fwvga_pt.o
