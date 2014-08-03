@@ -99,7 +99,5 @@ err_logo_close_file:
 	sys_close(fd);
 	return err;
 }
-#endif
-///ZTE_LCD_LUYA_20091221_001,end
 
 EXPORT_SYMBOL(load_565rle_image);
