@@ -1523,6 +1523,13 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)info->par;
 	struct msm_fb_panel_data *pdata;
 	
+	struct fb_info *fbi = mfd->fbi; 
+	if( internal_fb_refcnt && (skip_pan_display_cnt--) == 0) 
+	{ 
+		msm_fb_release(fbi, 0); 
+		internal_fb_refcnt = 0;
+	} 
+
 	/*
 	 * If framebuffer is 1 or 2, io pen display is not allowed.
 	 */
@@ -1532,14 +1539,6 @@ static int msm_fb_pan_display(struct fb_var_screeninfo *var,
 		       __func__, info->node);
 		return -EPERM;
 	}
-	
-	struct fb_info *fbi = mfd->fbi; 
-	if( internal_fb_refcnt && (skip_pan_display_cnt--) == 0) 
-	{ 
-		msm_fb_release(fbi, 0); 
-		internal_fb_refcnt = 0;
-	} 
-
 	
 	if (info->node != 0 || mfd->cont_splash_done)	/* primary */
 		if ((!mfd->op_enable) || (!mfd->panel_power_on))
