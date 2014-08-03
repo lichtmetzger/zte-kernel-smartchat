@@ -271,13 +271,13 @@ struct msm_fb_data_type {
 	u32 use_ov0_blt, ov0_blt_state;
 	u32 use_ov1_blt, ov1_blt_state;
 	u32 writeback_state;
+	int cont_splash_done;
 };
 
 struct dentry *msm_fb_get_debugfs_root(void);
 void msm_fb_debugfs_file_create(struct dentry *root, const char *name,
 				u32 *var);
-void msm_fb_set_backlight(struct msm_fb_data_type *mfd, __u32 bkl_lvl,
-				u32 save);
+void msm_fb_set_backlight(struct msm_fb_data_type *mfd, __u32 bkl_lvl);
 
 struct platform_device *msm_fb_add_device(struct platform_device *pdev);
 struct fb_info *msm_fb_get_writeback_fb(void);
@@ -300,5 +300,10 @@ void fill_black_screen(void);
 void unfill_black_screen(void);
 int msm_fb_check_frame_rate(struct msm_fb_data_type *mfd,
 				struct fb_info *info);
+
+#ifdef CONFIG_FB_MSM_LOGO
+#define INIT_IMAGE_FILE "/initlogo.rle"
+int load_565rle_image(char *filename, bool bf_supported);
+#endif
 
 #endif /* MSM_FB_H */

@@ -708,28 +708,52 @@ choice
 		bool "6.2.20 + New ADSP"
 endchoice
 
-config MSM_DEBUG_UART
-	int
-	default 1 if MSM_DEBUG_UART1
-	default 2 if MSM_DEBUG_UART2
-	default 3 if MSM_DEBUG_UART3
+config DEBUG_MSM8930_UART
+	bool "Kernel low-level debugging messages via MSM 8930 UART"
+	depends on ARCH_MSM8930 && DEBUG_LL
+	help
+	  Say Y here if you want the debug print routines to direct
+	  their output to the serial port on MSM 8930 devices.
 
 choice
 	prompt "Debug UART"
+	depends on DEBUG_LL
 
-	default MSM_DEBUG_UART_NONE
+	config DEBUG_MSM_UART1
+		bool "Kernel low-level debugging messages via MSM UART1"
+		depends on ARCH_MSM7X00A || ARCH_MSM7X30 || ARCH_QSD8X50
+		help
+		  Say Y here if you want the debug print routines to direct
+		  their output to the first serial port on MSM devices.
 
-	config MSM_DEBUG_UART_NONE
-		bool "None"
+	config DEBUG_MSM_UART2
+		bool "Kernel low-level debugging messages via MSM UART2"
+		depends on ARCH_MSM7X00A || ARCH_MSM7X30 || ARCH_QSD8X50
+		help
+		  Say Y here if you want the debug print routines to direct
+		  their output to the second serial port on MSM devices.
 
-	config MSM_DEBUG_UART1
-		bool "UART1"
+	config DEBUG_MSM_UART3
+		bool "Kernel low-level debugging messages via MSM UART3"
+		depends on ARCH_MSM7X00A || ARCH_MSM7X30 || ARCH_QSD8X50
+		help
+		  Say Y here if you want the debug print routines to direct
+		  their output to the third serial port on MSM devices.
 
-	config MSM_DEBUG_UART2
-		bool "UART2"
+	config DEBUG_MSM8660_UART
+		bool "Kernel low-level debugging messages via MSM 8660 UART"
+		depends on ARCH_MSM8X60
+		help
+		  Say Y here if you want the debug print routines to direct
+		  their output to the serial port on MSM 8660 devices.
 
-	config MSM_DEBUG_UART3
-		bool "UART3"
+	config DEBUG_MSM8960_UART
+		bool "Kernel low-level debugging messages via MSM 8960 UART"
+		depends on ARCH_MSM8960
+		select DEBUG_MSM8930_UART
+		help
+		  Say Y here if you want the debug print routines to direct
+		  their output to the serial port on MSM 8960 devices.
 endchoice
 
 choice
@@ -1765,5 +1789,46 @@ config MSM_MULTIMEDIA_USE_ION
 	  Enable support for multimedia drivers using Ion for buffer management
 	  instead of pmem. Selecting this may also involve userspace
 	  dependencies as well.
+
+config MSM_RTB
+	bool "Register tracing"
+	help
+	  Add support for logging different events to a small uncached
+	  region. This is designed to aid in debugging reset cases where the
+	  caches may not be flushed before the target resets.
+
+config MSM_RTB_SEPARATE_CPUS
+	bool "Separate entries for each cpu"
+	depends on MSM_RTB
+	help
+	  Under some circumstances, it may be beneficial to give dedicated space
+	  for each cpu to log accesses. Selecting this option will log each cpu
+	  separately. This will guarantee that the last acesses for each cpu
+	  will be logged but there will be fewer entries per cpu
+	  
+config MSM_CACHE_DUMP
+	bool "Cache dumping support"
+	help
+	  Add infrastructure to dump the L1 and L2 caches to an allocated buffer.
+	  This allows for analysis of the caches in case cache corruption is
+	  suspected.
+
+config MSM_CACHE_DUMP_ON_PANIC
+	bool "Dump caches on panic"
+	depends on MSM_CACHE_DUMP
+	help
+	  By default, the caches are flushed on panic. This means that trying to
+	  look at them in a RAM dump will give useless data. Select this if you
+	  want to dump the L1 and L2 caches on panic before any flush occurs.
+	  If unsure, say N
+	  
+config MSM_DCVS
+	bool "Use MSM DCVS for CPU/GPU Frequency control"
+	depends on MSM_SCM
+	help
+	  Enable support for MSM DCVS to control all CPU and GPU core frequencies.
+	  The DCVS manager allows idle driver to feed the idle information to the
+	  algorithm and the algorithm returns a frequency for the core which is
+	  passed to the frequency change driver.
 
 endif

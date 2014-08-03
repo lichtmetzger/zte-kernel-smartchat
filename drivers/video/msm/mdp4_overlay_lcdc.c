@@ -250,6 +250,9 @@ int mdp_lcdc_on(struct platform_device *pdev)
 	mdp_histogram_ctrl_all(TRUE);
 
 	ret = panel_next_on(pdev);
+	if (ret == 0)
+		mdp_pipe_ctrl(MDP_OVERLAY0_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
+
 	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 
@@ -401,7 +404,6 @@ void mdp4_overlay_lcdc_start(void)
 		mdp4_iommu_attach();
 		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 		MDP_OUTP(MDP_BASE + LCDC_BASE, 1);
-		mdp_pipe_ctrl(MDP_OVERLAY0_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 		lcdc_enabled = 1;
 	}
@@ -507,9 +509,12 @@ static void mdp4_lcdc_do_blt(struct msm_fb_data_type *mfd, int enable)
 	if (!change)
 		return;
 
-	mdp4_overlay_lcdc_wait4event(mfd, INTR_DMA_P_DONE);
-	MDP_OUTP(MDP_BASE + LCDC_BASE, 0);	/* stop lcdc */
-	msleep(20);
+	if (lcdc_enabled) {
+		mdp4_overlay_lcdc_wait4event(mfd, INTR_DMA_P_DONE);
+		MDP_OUTP(MDP_BASE + LCDC_BASE, 0);	/* stop lcdc */
+		msleep(20);
+	}
+
 	mdp4_overlayproc_cfg(lcdc_pipe);
 	mdp4_overlay_dmap_xy(lcdc_pipe);
 	MDP_OUTP(MDP_BASE + LCDC_BASE, 1);	/* start lcdc */

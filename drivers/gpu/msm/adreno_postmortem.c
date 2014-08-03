@@ -26,6 +26,7 @@
 #include "a2xx_reg.h"
 
 #define INVALID_RB_CMD 0xaaaaaaaa
+#define NUM_DWORDS_OF_RINGBUFFER_HISTORY 100
 
 struct pm_id_name {
 	uint32_t id;
@@ -52,7 +53,7 @@ static const struct pm_id_name pm3_types[] = {
 	{CP_IM_LOAD,			"IN__LOAD"},
 	{CP_IM_LOAD_IMMEDIATE,		"IM_LOADI"},
 	{CP_IM_STORE,			"IM_STORE"},
-	{CP_INDIRECT_BUFFER,		"IND_BUF_"},
+	{CP_INDIRECT_BUFFER_PFE,	"IND_BUF_"},
 	{CP_INDIRECT_BUFFER_PFD,	"IND_BUFP"},
 	{CP_INTERRUPT,			"PM4_INTR"},
 	{CP_INVALIDATE_STATE,		"INV_STAT"},
@@ -199,7 +200,7 @@ static void dump_ib1(struct kgsl_device *device, uint32_t pt_base,
 
 	for (i = 0; i+3 < ib1_size; ) {
 		value = ib1_addr[i++];
-		if (value == cp_type3_packet(CP_INDIRECT_BUFFER_PFD, 2)) {
+		if (adreno_cmd_is_ib(value)) {
 			uint32_t ib2_base = ib1_addr[i++];
 			uint32_t ib2_size = ib1_addr[i++];
 
@@ -428,7 +429,12 @@ static int adreno_dump(struct kgsl_device *device)
 	kgsl_regread(device, REG_CP_RB_RPTR_ADDR, &r3);
 	KGSL_LOG_DUMP(device,
 		"CP_RB:  BASE = %08X | CNTL   = %08X | RPTR_ADDR = %08X"
-		"\n", cp_rb_base, r2, r3);
+		" | rb_count = %08X\n", cp_rb_base, r2, r3, rb_count);
+	{
+		struct adreno_ringbuffer *rb = &adreno_dev->ringbuffer;
+		if (rb->sizedwords != rb_count)
+			rb_count = rb->sizedwords;
+	}
 
 	kgsl_regread(device, REG_CP_RB_RPTR, &cp_rb_rptr);
 	kgsl_regread(device, REG_CP_RB_WPTR, &cp_rb_wptr);
@@ -580,13 +586,13 @@ static int adreno_dump(struct kgsl_device *device)
 		goto error_vfree;
 	}
 
-	read_idx = (int)cp_rb_rptr - 64;
+	read_idx = (int)cp_rb_rptr - NUM_DWORDS_OF_RINGBUFFER_HISTORY;
 	if (read_idx < 0)
 		read_idx += rb_count;
 	write_idx = (int)cp_rb_wptr + 16;
 	if (write_idx > rb_count)
 		write_idx -= rb_count;
-	num_item += 64+16;
+	num_item += NUM_DWORDS_OF_RINGBUFFER_HISTORY+16;
 	if (num_item > rb_count)
 		num_item = rb_count;
 	if (write_idx >= read_idx)
@@ -602,7 +608,7 @@ static int adreno_dump(struct kgsl_device *device)
 	i = 0;
 	for (read_idx = 0; read_idx < num_item; ) {
 		uint32_t this_cmd = rb_copy[read_idx++];
-		if (this_cmd == cp_type3_packet(CP_INDIRECT_BUFFER_PFD, 2)) {
+		if (adreno_cmd_is_ib(this_cmd)) {
 			uint32_t ib_addr = rb_copy[read_idx++];
 			uint32_t ib_size = rb_copy[read_idx++];
 			dump_ib1(device, cur_pt_base, (read_idx-3)<<2, ib_addr,
@@ -633,7 +639,7 @@ static int adreno_dump(struct kgsl_device *device)
 	   the process in whose context the GPU hung */
 	cur_pt_base = pt_base;
 
-	read_idx = (int)cp_rb_rptr - 64;
+	read_idx = (int)cp_rb_rptr - NUM_DWORDS_OF_RINGBUFFER_HISTORY;
 	if (read_idx < 0)
 		read_idx += rb_count;
 	KGSL_LOG_DUMP(device,
@@ -642,13 +648,13 @@ static int adreno_dump(struct kgsl_device *device)
 	adreno_dump_rb(device, rb_copy, num_item<<2, read_idx, rb_count);
 
 	if (adreno_ib_dump_enabled()) {
-		for (read_idx = 64; read_idx >= 0; --read_idx) {
+		for (read_idx = NUM_DWORDS_OF_RINGBUFFER_HISTORY;
+			read_idx >= 0; --read_idx) {
 			uint32_t this_cmd = rb_copy[read_idx];
-			if (this_cmd == cp_type3_packet(
-				CP_INDIRECT_BUFFER_PFD, 2)) {
+			if (adreno_cmd_is_ib(this_cmd)) {
 				uint32_t ib_addr = rb_copy[read_idx+1];
 				uint32_t ib_size = rb_copy[read_idx+2];
-				if (cp_ib1_bufsz && cp_ib1_base == ib_addr) {
+				if (ib_size && cp_ib1_base == ib_addr) {
 					KGSL_LOG_DUMP(device,
 						"IB1: base:%8.8X  "
 						"count:%d\n", ib_addr, ib_size);
@@ -659,9 +665,9 @@ static int adreno_dump(struct kgsl_device *device)
 			}
 		}
 		for (i = 0; i < ib_list.count; ++i) {
-			if (cp_ib2_bufsz && cp_ib2_base == ib_list.bases[i]) {
-				uint32_t ib_size = ib_list.sizes[i];
-				uint32_t ib_offset = ib_list.offsets[i];
+			uint32_t ib_size = ib_list.sizes[i];
+			uint32_t ib_offset = ib_list.offsets[i];
+			if (ib_size && cp_ib2_base == ib_list.bases[i]) {
 				KGSL_LOG_DUMP(device,
 					"IB2: base:%8.8X  count:%d\n",
 					cp_ib2_base, ib_size);
@@ -696,6 +702,7 @@ end:
 
 int adreno_postmortem_dump(struct kgsl_device *device, int manual)
 {
+	bool saved_nap;
 	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 
 	BUG_ON(device == NULL);
@@ -727,16 +734,27 @@ int adreno_postmortem_dump(struct kgsl_device *device, int manual)
 	KGSL_LOG_DUMP(device, "BUS CLK = %lu ",
 		kgsl_get_clkrate(pwr->ebi1_clk));
 
-	/*
-	 * Disable the irq, idle timer, and workqueue so we don't
-	 * get interrupted
-	 */
-	kgsl_pwrctrl_stop_work(device);
+	/* Disable the idle timer so we don't get interrupted */
+	del_timer_sync(&device->idle_timer);
+	mutex_unlock(&device->mutex);
+	flush_workqueue(device->work_queue);
+	mutex_lock(&device->mutex);
+
+	/* Turn off napping to make sure we have the clocks full
+	   attention through the following process */
+	saved_nap = device->pwrctrl.nap_allowed;
+	device->pwrctrl.nap_allowed = false;
 
 	/* Force on the clocks */
-	kgsl_pwrctrl_clk(device, KGSL_PWRFLAGS_ON);
+	kgsl_pwrctrl_wake(device);
+
+	/* Disable the irq */
+	kgsl_pwrctrl_irq(device, KGSL_PWRFLAGS_OFF);
 
 	adreno_dump(device);
+
+	/* Restore nap mode */
+	device->pwrctrl.nap_allowed = saved_nap;
 
 	/* On a manual trigger, turn on the interrupts and put
 	   the clocks to sleep.  They will recover themselves

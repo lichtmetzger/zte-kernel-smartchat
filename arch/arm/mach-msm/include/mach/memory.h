@@ -21,6 +21,8 @@
 
 #define MAX_PHYSMEM_BITS 32
 #define SECTION_SIZE_BITS 28
+/* Maximum number of Memory Regions */
+#define MAX_NR_REGIONS 4
 
 /* Certain configurations of MSM7x30 have multiple memory banks.
 *  One or more of these banks can contain holes in the memory map as well.
@@ -54,8 +56,6 @@
 
 #endif
 
-#define HAS_ARCH_IO_REMAP_PFN_RANGE
-
 #ifndef __ASSEMBLY__
 void *alloc_bootmem_aligned(unsigned long size, unsigned long alignment);
 void *allocate_contiguous_ebi(unsigned long, unsigned long, int);
@@ -77,6 +77,11 @@ void map_page_strongly_ordered(void);
 #ifdef CONFIG_CACHE_L2X0
 extern void l2x0_cache_sync(void);
 #define finish_arch_switch(prev)     do { l2x0_cache_sync(); } while (0)
+#endif
+
+#if defined(CONFIG_ARCH_MSM8X60) || defined(CONFIG_ARCH_MSM8960)
+extern void store_ttbr0(void);
+#define finish_arch_switch(prev)	do { store_ttbr0(); } while (0)
 #endif
 
 #endif

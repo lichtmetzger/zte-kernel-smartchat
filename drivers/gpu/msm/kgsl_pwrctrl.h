@@ -63,9 +63,11 @@ struct kgsl_pwrctrl {
 	int thermal_pwrlevel;
 	unsigned int num_pwrlevels;
 	unsigned int interval_timeout;
+	bool strtstp_sleepwake;
 	struct regulator *gpu_reg;
 	uint32_t pcl;
 	unsigned int nap_allowed;
+	unsigned int idle_needed;
 	const char *regulator_name;
 	const char *irq_name;
 	s64 time;
@@ -74,7 +76,6 @@ struct kgsl_pwrctrl {
 };
 
 void kgsl_pwrctrl_irq(struct kgsl_device *device, int state);
-void kgsl_pwrctrl_clk(struct kgsl_device *device, int state);
 int kgsl_pwrctrl_init(struct kgsl_device *device);
 void kgsl_pwrctrl_close(struct kgsl_device *device);
 void kgsl_timer(unsigned long data);
@@ -89,7 +90,6 @@ int kgsl_pwrctrl_init_sysfs(struct kgsl_device *device);
 void kgsl_pwrctrl_uninit_sysfs(struct kgsl_device *device);
 void kgsl_pwrctrl_enable(struct kgsl_device *device);
 void kgsl_pwrctrl_disable(struct kgsl_device *device);
-void kgsl_pwrctrl_stop_work(struct kgsl_device *device);
 static inline unsigned long kgsl_get_clkrate(struct clk *clk)
 {
 	return (clk != NULL) ? clk_get_rate(clk) : 0;

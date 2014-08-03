@@ -37,17 +37,7 @@
 #include <mach/msm_iomap.h>
 #include <mach/socinfo.h>
 #include <../../mm/mm.h>
-
-int arch_io_remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
-			    unsigned long pfn, unsigned long size, pgprot_t prot)
-{
-	unsigned long pfn_addr = pfn << PAGE_SHIFT;
-	if ((pfn_addr >= 0x88000000) && (pfn_addr < 0xD0000000)) {
-		prot = pgprot_device(prot);
-		pr_debug("remapping device %lx\n", prot);
-	}
-	return remap_pfn_range(vma, addr, pfn, size, prot);
-}
+#include <linux/fmem.h>
 
 void *strongly_ordered_page;
 char strongly_ordered_mem[PAGE_SIZE*2-4];
@@ -303,6 +293,24 @@ static void __init reserve_memory_for_mempools(void)
 	}
 }
 
+unsigned long __init reserve_memory_for_fmem(unsigned long fmem_size)
+{
+	struct membank *mb;
+	int ret;
+	unsigned long fmem_phys;
+
+	if (!fmem_size)
+		return 0;
+
+	mb = &meminfo.bank[meminfo.nr_banks - 1];
+	fmem_phys = mb->start + (mb->size - fmem_size);
+	ret = memblock_remove(fmem_phys, fmem_size);
+	BUG_ON(ret);
+
+	pr_info("fmem start %lx size %lx\n", fmem_phys, fmem_size);
+	return fmem_phys;
+}
+
 static void __init initialize_mempools(void)
 {
 	struct mem_pool *mpool;
@@ -408,3 +416,22 @@ int pmem_kfree(const int32_t physaddr)
 	return 0;
 }
 EXPORT_SYMBOL(pmem_kfree);
+
+unsigned int msm_ttbr0;
+
+void store_ttbr0(void)
+{
+	/* Store TTBR0 for post-mortem debugging purposes. */
+	asm("mrc p15, 0, %0, c2, c0, 0\n"
+		: "=r" (msm_ttbr0));
+}
+
+int request_fmem_c_region(void *unused)
+{
+	return fmem_set_state(FMEM_C_STATE);
+}
+
+int release_fmem_c_region(void *unused)
+{
+	return fmem_set_state(FMEM_T_STATE);
+}

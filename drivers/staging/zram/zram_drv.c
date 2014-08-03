@@ -15,6 +15,10 @@
 #define KMSG_COMPONENT "zram"
 #define pr_fmt(fmt) KMSG_COMPONENT ": " fmt
 
+#ifdef CONFIG_ZRAM_DEBUG
+#define DEBUG
+#endif
+
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/bio.h>
@@ -630,14 +634,12 @@ static int create_device(struct zram *zram, int device_id)
 
 	add_disk(zram->disk);
 
-#ifdef CONFIG_SYSFS
 	ret = sysfs_create_group(&disk_to_dev(zram->disk)->kobj,
 				&zram_disk_attr_group);
 	if (ret < 0) {
 		pr_warning("Error creating sysfs group");
 		goto out;
 	}
-#endif
 
 	zram->init_done = 0;
 
@@ -647,10 +649,8 @@ out:
 
 static void destroy_device(struct zram *zram)
 {
-#ifdef CONFIG_SYSFS
 	sysfs_remove_group(&disk_to_dev(zram->disk)->kobj,
 			&zram_disk_attr_group);
-#endif
 
 	if (zram->disk) {
 		del_gendisk(zram->disk);

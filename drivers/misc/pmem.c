@@ -18,18 +18,24 @@
 #include <linux/platform_device.h>
 #include <linux/fs.h>
 #include <linux/file.h>
+#include <linux/fmem.h>
 #include <linux/mm.h>
 #include <linux/list.h>
 #include <linux/debugfs.h>
 #include <linux/android_pmem.h>
 #include <linux/mempolicy.h>
 #include <linux/kobject.h>
+#include <linux/pm_runtime.h>
+#include <linux/memory_alloc.h>
+#include <linux/vmalloc.h>
+#include <linux/io.h>
+#include <linux/mm_types.h>
 #include <asm/io.h>
 #include <asm/uaccess.h>
 #include <asm/cacheflush.h>
 #include <asm/sizes.h>
-#include <linux/pm_runtime.h>
-#include <linux/memory_alloc.h>
+#include <asm/mach/map.h>
+#include <asm/page.h>
 
 #define PMEM_MAX_DEVICES (10)
 
@@ -148,6 +154,8 @@ struct pmem_info {
 
 	/* index of the garbage page in the pmem space */
 	int garbage_index;
+	/* reserved virtual address range */
+	struct vm_struct *area;
 
 	enum pmem_allocator_type allocator_type;
 
@@ -222,12 +230,12 @@ struct pmem_info {
 	 * request function for a region when the allocation count goes
 	 * from 0 -> 1
 	 */
-	void (*mem_request)(void *);
+	int (*mem_request)(void *);
 	/*
 	 * release function for a region when the allocation count goes
 	 * from 1 -> 0
 	 */
-	void (*mem_release)(void *);
+	int (*mem_release)(void *);
 	/*
 	 * private data for the request/release callback
 	 */
@@ -236,6 +244,10 @@ struct pmem_info {
 	 * map and unmap as needed
 	 */
 	int map_on_demand;
+	/*
+	 * memory will be reused through fmem
+	 */
+	int reusable;
 };
 #define to_pmem_info_id(a) (container_of(a, struct pmem_info, kobj)->id)
 
@@ -575,8 +587,13 @@ static int pmem_get_region(int id)
 	atomic_inc(&pmem[id].allocation_cnt);
 	if (!pmem[id].vbase) {
 		DLOG("PMEMDEBUG: mapping for %s", pmem[id].name);
-		if (pmem[id].mem_request)
-				pmem[id].mem_request(pmem[id].region_data);
+		if (pmem[id].mem_request) {
+			int ret = pmem[id].mem_request(pmem[id].region_data);
+			if (ret) {
+				atomic_dec(&pmem[id].allocation_cnt);
+				return 1;
+			}
+		}
 		ioremap_pmem(id);
 	}
 
@@ -597,10 +614,17 @@ static void pmem_put_region(int id)
 		DLOG("PMEMDEBUG: unmapping for %s", pmem[id].name);
 		BUG_ON(!pmem[id].vbase);
 		if (pmem[id].map_on_demand) {
-			iounmap(pmem[id].vbase);
+			/* unmap_kernel_range() flushes the caches
+			 * and removes the page table entries
+			 */
+			unmap_kernel_range((unsigned long)pmem[id].vbase,
+				 pmem[id].size);
 			pmem[id].vbase = NULL;
-			if (pmem[id].mem_release)
-				pmem[id].mem_release(pmem[id].region_data);
+			if (pmem[id].mem_release) {
+				int ret = pmem[id].mem_release(
+						pmem[id].region_data);
+				WARN(ret, "mem_release failed");
+			}
 
 		}
 	}
@@ -2520,17 +2544,40 @@ static long pmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 static void ioremap_pmem(int id)
 {
-	DLOG("PMEMDEBUG: ioremaping for %s\n", pmem[id].name);
+	unsigned long addr;
+	const struct mem_type *type;
 
-	if (pmem[id].cached)
-		pmem[id].vbase = ioremap_cached(pmem[id].base, pmem[id].size);
-#ifdef ioremap_ext_buffered
-	else if (pmem[id].buffered)
-		pmem[id].vbase = ioremap_ext_buffered(pmem[id].base,
-					pmem[id].size);
-#endif
-	else
-		pmem[id].vbase = ioremap(pmem[id].base, pmem[id].size);
+	DLOG("PMEMDEBUG: ioremaping for %s\n", pmem[id].name);
+	if (pmem[id].map_on_demand) {
+		addr = (unsigned long)pmem[id].area->addr;
+		if (pmem[id].cached)
+			type = get_mem_type(MT_DEVICE_CACHED);
+		else
+			type = get_mem_type(MT_DEVICE);
+		DLOG("PMEMDEBUG: Remap phys %lx to virt %lx on %s\n",
+			pmem[id].base, addr, pmem[id].name);
+		if (ioremap_page_range(addr, addr + pmem[id].size,
+			pmem[id].base, __pgprot(type->prot_pte))) {
+				pr_err("pmem: Failed to map pages\n");
+				BUG();
+		}
+		pmem[id].vbase = pmem[id].area->addr;
+		/* Flush the cache after installing page table entries to avoid
+		 * aliasing when these pages are remapped to user space.
+		 */
+		flush_cache_vmap(addr, addr + pmem[id].size);
+	} else {
+		if (pmem[id].cached)
+			pmem[id].vbase = ioremap_cached(pmem[id].base,
+						pmem[id].size);
+	#ifdef ioremap_ext_buffered
+		else if (pmem[id].buffered)
+			pmem[id].vbase = ioremap_ext_buffered(pmem[id].base,
+						pmem[id].size);
+	#endif
+		else
+			pmem[id].vbase = ioremap(pmem[id].base, pmem[id].size);
+	}
 }
 
 int pmem_setup(struct android_pmem_platform_data *pdata,
@@ -2538,6 +2585,7 @@ int pmem_setup(struct android_pmem_platform_data *pdata,
 	       int (*release)(struct inode *, struct file *))
 {
 	int i, index = 0, id;
+	struct vm_struct *pmem_vma = NULL;
 
 	if (id_count >= PMEM_MAX_DEVICES) {
 		pr_alert("pmem: %s: unable to register driver(%s) - no more "
@@ -2742,9 +2790,31 @@ int pmem_setup(struct android_pmem_platform_data *pdata,
 	pr_info("allocating %lu bytes at %p (%lx physical) for %s\n",
 		pmem[id].size, pmem[id].vbase, pmem[id].base, pmem[id].name);
 
+	pmem[id].reusable = pdata->reusable;
+	/* reusable pmem requires map on demand */
+	pmem[id].map_on_demand = pdata->map_on_demand || pdata->reusable;
+	if (pmem[id].map_on_demand) {
+		if (pmem[id].reusable) {
+			const struct fmem_data *fmem_info = fmem_get_info();
+			pmem[id].area = fmem_info->area;
+		} else {
+			pmem_vma = get_vm_area(pmem[id].size, VM_IOREMAP);
+			if (!pmem_vma) {
+				pr_err("pmem: Failed to allocate virtual space for "
+					"%s\n", pdata->name);
+				goto out_put_kobj;
+			}
+			pr_err("pmem: Reserving virtual address range %lx - %lx for"
+				" %s\n", (unsigned long) pmem_vma->addr,
+				(unsigned long) pmem_vma->addr + pmem[id].size,
+				pdata->name);
+			pmem[id].area = pmem_vma;
+		}
+	} else
+		pmem[id].area = NULL;
+
 	pmem[id].garbage_pfn = page_to_pfn(alloc_page(GFP_KERNEL));
 	atomic_set(&pmem[id].allocation_cnt, 0);
-	pmem[id].map_on_demand = pdata->map_on_demand;
 
 	if (pdata->setup_region)
 		pmem[id].region_data = pdata->setup_region();

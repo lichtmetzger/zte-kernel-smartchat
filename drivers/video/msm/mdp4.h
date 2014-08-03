@@ -41,6 +41,9 @@ extern uint32 mdp_intr_mask;
 extern spinlock_t mdp_spin_lock;
 extern struct mdp4_statistic mdp4_stat;
 extern uint32 mdp4_extn_disp;
+extern char *mmss_cc_base;	/* mutimedia sub system clock control */
+extern u32 dbg_force_ov0_blt;
+extern u32 dbg_force_ov1_blt;
 
 #define MDP4_OVERLAYPROC0_BASE	0x10000
 #define MDP4_OVERLAYPROC1_BASE	0x18000
@@ -770,7 +773,7 @@ void mdp4_csc_write(struct mdp_csc_cfg *data, uint32_t base);
 int mdp4_csc_enable(struct mdp_csc_cfg_data *config);
 int mdp4_pcc_cfg(struct mdp_pcc_cfg_data *cfg_ptr);
 int mdp4_argc_cfg(struct mdp_pgc_lut_data *pgc_ptr);
-
+int mdp4_qseed_cfg(struct mdp_qseed_cfg_data *cfg);
 u32  mdp4_allocate_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num);
 void mdp4_init_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num);
 void mdp4_free_writeback_buf(struct msm_fb_data_type *mfd, u32 mix_num);
