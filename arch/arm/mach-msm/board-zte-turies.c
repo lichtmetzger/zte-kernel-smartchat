@@ -1541,17 +1541,21 @@ static struct msm_i2c_platform_data msm_gsbi1_qup_i2c_pdata = {
 
 #ifdef CONFIG_ARCH_MSM7X27A
 //ruanmeisi for liuhaitao 20111220, HVGA(480x320)
-//#define MSM_PMEM_MDP_SIZE       0x1DD1000
-#define MSM_PMEM_MDP_SIZE       (13*1024*1024)
-//#define MSM_PMEM_ADSP_SIZE      0x1000000
-#define MSM_PMEM_ADSP_SIZE      0xB71000
+//#define MSM_PMEM_MDP_SIZE       0x1DD1000 //stock p752d
+//#define MSM_PMEM_MDP_SIZE       (13*1024*1024) //codeaurora spec, 13M
+#define MSM_PMEM_MDP_SIZE       0x1400000	// 20M
+//#define MSM_PMEM_ADSP_SIZE      0x1000000 //stock p752d
+//#define MSM_PMEM_ADSP_SIZE      0xB71000 //codeaurora spec, 11.5M
+#define MSM_PMEM_ADSP_SIZE      0xC00000	// 12M
 
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
 //ruanmeisi for liuhaitao 20111220, HVGA(480x320)
-//#define MSM_FB_SIZE		0x260000
-#define MSM_FB_SIZE		(1*1024*1024)
+//#define MSM_FB_SIZE		0x260000 //stock p752d
+//#define MSM_FB_SIZE		(1*1024*1024) //codeaurora spec, 1M
+#define MSM_FB_SIZE		0x500000 //5M
 #else
-#define MSM_FB_SIZE		0x195000
+//#define MSM_FB_SIZE		0x195000 //stock
+#define MSM_FB_SIZE		0x196000
 #endif
 
 #endif
