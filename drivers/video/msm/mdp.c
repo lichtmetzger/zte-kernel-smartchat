@@ -2073,8 +2073,8 @@ static int mdp_off(struct platform_device *pdev)
 	else if (mfd->panel.type == MIPI_VIDEO_PANEL)
 		mdp4_dsi_video_off(pdev);
 	else if (mfd->panel.type == HDMI_PANEL ||
-			mfd->panel.type == LCDC_PANEL ||
-			mfd->panel.type == LVDS_PANEL)
+			mfd->panel.type == LCDC_PANEL)
+			// || mfd->panel.type == LVDS_PANEL)
 		mdp4_lcdc_off(pdev);
 
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
@@ -2103,8 +2103,8 @@ static int mdp_on(struct platform_device *pdev)
 		} else if (mfd->panel.type == MIPI_VIDEO_PANEL) {
 			mdp4_dsi_video_on(pdev);
 		} else if (mfd->panel.type == HDMI_PANEL ||
-				mfd->panel.type == LCDC_PANEL ||
-				mfd->panel.type == LVDS_PANEL) {
+				mfd->panel.type == LCDC_PANEL)
+				// || mfd->panel.type == LVDS_PANEL) {
 			mdp4_lcdc_on(pdev);
 		}
 
