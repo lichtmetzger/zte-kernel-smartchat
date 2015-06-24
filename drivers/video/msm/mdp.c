@@ -2086,6 +2086,17 @@ static int mdp_off(struct platform_device *pdev)
 	return ret;
 }
 
+#ifdef CONFIG_FB_MSM_MDP303
+unsigned is_mdp4_hw_reset(void)
+{
+	return 0;
+}
+void mdp4_hw_init(void)
+{
+	/* empty */
+}
+#endif
+
 static int mdp_on(struct platform_device *pdev)
 {
 	int ret = 0;
