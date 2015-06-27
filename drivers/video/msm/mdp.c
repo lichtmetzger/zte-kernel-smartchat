@@ -1765,11 +1765,9 @@ irqreturn_t mdp_isr(int irq, void *ptr)
 	uint32 mdp_interrupt = 0;
 	struct mdp_dma_data *dma;
 	unsigned long flag;
-#ifndef CONFIG_FB_MSM_MDP22
 	struct mdp_hist_mgmt *mgmt = NULL;
 	char *base_addr;
 	int i, ret;
-#endif
 	/* Ensure all the register write are complete */
 	mb();
 
@@ -1803,7 +1801,8 @@ irqreturn_t mdp_isr(int irq, void *ptr)
 			complete(&dma->comp);
 		}
 	}
-#ifndef CONFIG_FB_MSM_MDP22
+
+		if (mdp_rev >= MDP_REV_30) {
 		/* Only DMA_P histogram exists for this MDP rev*/
 		if (mdp_interrupt & MDP_HIST_DONE) {
 			ret = mdp_histogram_block2mgmt(MDP_BLOCK_DMA_P, &mgmt);
@@ -1861,6 +1860,7 @@ irqreturn_t mdp_isr(int irq, void *ptr)
 				      TRUE);
 			complete(&dma->comp);
 		}
+
 		/* DMA_E LCD-Out Complete */
 		if (mdp_interrupt & MDP_DMA_E_DONE) {
 			dma = &dma_s_data;
@@ -1869,8 +1869,7 @@ irqreturn_t mdp_isr(int irq, void *ptr)
 				TRUE);
 			complete(&dma->comp);
 		}
-
-#endif
+	}
 
 	/* DMA2 LCD-Out Complete */
 	if (mdp_interrupt & MDP_DMA_P_DONE) {
