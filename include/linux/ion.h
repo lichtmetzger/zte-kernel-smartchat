@@ -2,6 +2,7 @@
  * include/linux/ion.h
  *
  * Copyright (C) 2011 Google, Inc.
+ * Copyright (c) 2011-2012, Code Aurora Forum. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -27,15 +28,20 @@ struct ion_handle;
  * @ION_HEAP_TYPE_SYSTEM:	 memory allocated via vmalloc
  * @ION_HEAP_TYPE_SYSTEM_CONTIG: memory allocated via kmalloc
  * @ION_HEAP_TYPE_CARVEOUT:	 memory allocated from a prereserved
- * 				 carveout heap, allocations are physically
- * 				 contiguous
- * @ION_HEAP_END:		 helper for iterating over heaps
+ *				 carveout heap, allocations are physically
+ *				 contiguous
+ * @ION_HEAP_TYPE_IOMMU: IOMMU memory
+ * @ION_HEAP_TYPE_CP:	 memory allocated from a prereserved
+ *				carveout heap, allocations are physically
+ *				contiguous. Used for content protection.
+ * @ION_HEAP_END:		helper for iterating over heaps
  */
 enum ion_heap_type {
 	ION_HEAP_TYPE_SYSTEM,
 	ION_HEAP_TYPE_SYSTEM_CONTIG,
 	ION_HEAP_TYPE_CARVEOUT,
 	ION_HEAP_TYPE_IOMMU,
+	ION_HEAP_TYPE_CP,
 	ION_HEAP_TYPE_CUSTOM, /* must be last so device specific heaps always
 				 are at the end of this enum */
 	ION_NUM_HEAPS,
@@ -44,6 +50,7 @@ enum ion_heap_type {
 #define ION_HEAP_SYSTEM_MASK		(1 << ION_HEAP_TYPE_SYSTEM)
 #define ION_HEAP_SYSTEM_CONTIG_MASK	(1 << ION_HEAP_TYPE_SYSTEM_CONTIG)
 #define ION_HEAP_CARVEOUT_MASK		(1 << ION_HEAP_TYPE_CARVEOUT)
+#define ION_HEAP_CP_MASK		(1 << ION_HEAP_TYPE_CP)
 
 
 /**
@@ -56,14 +63,17 @@ enum ion_heap_type {
  */
 
 enum ion_heap_ids {
+	INVALID_HEAP_ID = -1,
 	ION_IOMMU_HEAP_ID = 4,
 	ION_CP_MM_HEAP_ID = 8,
 	ION_CP_MFC_HEAP_ID = 12,
 	ION_CP_WB_HEAP_ID = 16, /* 8660 only */
 	ION_CAMERA_HEAP_ID = 20, /* 8660 only */
 	ION_SF_HEAP_ID = 24,
+	ION_QSECOM_HEAP_ID = 27,
 	ION_AUDIO_HEAP_ID = 28,
 
+	ION_MM_FIRMWARE_HEAP_ID = 29,
 	ION_SYSTEM_HEAP_ID = 30,
 
 	ION_HEAP_ID_RESERVED = 31 /** Bit reserved for ION_SECURE flag */
@@ -87,6 +97,9 @@ enum ion_heap_ids {
 #define ION_IOMMU_HEAP_NAME	"iommu"
 #define ION_MFC_HEAP_NAME	"mfc"
 #define ION_WB_HEAP_NAME	"wb"
+#define ION_MM_FIRMWARE_HEAP_NAME	"mm_fw"
+#define ION_QSECOM_HEAP_NAME	"qsecom"
+#define ION_FMEM_HEAP_NAME	"fmem"
 
 #define CACHED          1
 #define UNCACHED        0
@@ -96,6 +109,12 @@ enum ion_heap_ids {
 #define ION_SET_CACHE(__cache)  ((__cache) << ION_CACHE_SHIFT)
 
 #define ION_IS_CACHED(__flags)	((__flags) & (1 << ION_CACHE_SHIFT))
+
+/*
+ * This flag allows clients when mapping into the IOMMU to specify to
+ * defer un-mapping from the IOMMU until the buffer memory is freed.
+ */
+#define ION_IOMMU_UNMAP_DELAYED 1
 
 #ifdef __KERNEL__
 #include <linux/err.h>
@@ -111,22 +130,18 @@ struct ion_buffer;
    be converted to phys_addr_t.  For the time being many kernel interfaces
    do not accept phys_addr_t's that would have to */
 #define ion_phys_addr_t unsigned long
+#define ion_virt_addr_t unsigned long
 
 /**
  * struct ion_platform_heap - defines a heap in the given platform
  * @type:	type of the heap from ion_heap_type enum
- * @id:		unique identifier for heap.  When allocating (lower numbers 
- * 		will be allocated from first)
+ * @id:		unique identifier for heap.  When allocating (lower numbers
+ *		will be allocated from first)
  * @name:	used for debug purposes
  * @base:	base address of heap in physical memory if applicable
  * @size:	size of the heap in bytes if applicable
- * @request_region: function to be called when the number of allocations goes
- *						from 0 -> 1
- * @release_region: function to be called when the number of allocations goes
- *						from 1 -> 0
- * @setup_region:   function to be called upon ion registration
- *
- * Provided by the board file.
+ * @memory_type:Memory type used for the heap
+ * @extra_data:	Extra data specific to each heap type
  */
 struct ion_platform_heap {
 	enum ion_heap_type type;
@@ -135,8 +150,58 @@ struct ion_platform_heap {
 	ion_phys_addr_t base;
 	size_t size;
 	enum ion_memory_types memory_type;
-	void (*request_region)(void *);
-	void (*release_region)(void *);
+	void *extra_data;
+};
+
+/**
+ * struct ion_cp_heap_pdata - defines a content protection heap in the given
+ * platform
+ * @permission_type:	Memory ID used to identify the memory to TZ
+ * @align:		Alignment requirement for the memory
+ * @secure_base:	Base address for securing the heap.
+ *			Note: This might be different from actual base address
+ *			of this heap in the case of a shared heap.
+ * @secure_size:	Memory size for securing the heap.
+ *			Note: This might be different from actual size
+ *			of this heap in the case of a shared heap.
+ * @reusable		Flag indicating whether this heap is reusable of not.
+ *			(see FMEM)
+ * @virt_addr:		Virtual address used when using fmem.
+ * @request_region:	function to be called when the number of allocations
+ *			goes from 0 -> 1
+ * @release_region:	function to be called when the number of allocations
+ *			goes from 1 -> 0
+ * @setup_region:	function to be called upon ion registration
+ *
+ */
+struct ion_cp_heap_pdata {
+	enum ion_permission_type permission_type;
+	unsigned int align;
+	ion_phys_addr_t secure_base; /* Base addr used when heap is shared */
+	size_t secure_size; /* Size used for securing heap when heap is shared*/
+	int reusable;
+	ion_virt_addr_t *virt_addr;
+	int (*request_region)(void *);
+	int (*release_region)(void *);
+	void *(*setup_region)(void);
+};
+
+/**
+ * struct ion_co_heap_pdata - defines a carveout heap in the given platform
+ * @adjacent_mem_id:	Id of heap that this heap must be adjacent to.
+ * @align:		Alignment requirement for the memory
+ * @request_region:	function to be called when the number of allocations
+ *			goes from 0 -> 1
+ * @release_region:	function to be called when the number of allocations
+ *			goes from 1 -> 0
+ * @setup_region:	function to be called upon ion registration
+ *
+ */
+struct ion_co_heap_pdata {
+	int adjacent_mem_id;
+	unsigned int align;
+	int (*request_region)(void *);
+	int (*release_region)(void *);
 	void *(*setup_region)(void);
 };
 
@@ -154,8 +219,8 @@ struct ion_platform_heap {
  */
 struct ion_platform_data {
 	int nr;
-	void (*request_region)(void *);
-	void (*release_region)(void *);
+	int (*request_region)(void *);
+	int (*release_region)(void *);
 	void *(*setup_region)(void);
 	struct ion_platform_heap heaps[];
 };
@@ -342,6 +407,7 @@ int ion_handle_get_flags(struct ion_client *client, struct ion_handle *handle,
  * @iova - pointer to store the iova address
  * @buffer_size - pointer to store the size of the buffer
  * @flags - flags for options to map
+ * @iommu_flags - flags specific to the iommu.
  *
  * Maps the handle into the iova space specified via domain number. Iova
  * will be allocated from the partition specified via partition_num.
@@ -351,7 +417,7 @@ int ion_map_iommu(struct ion_client *client, struct ion_handle *handle,
 			int domain_num, int partition_num, unsigned long align,
 			unsigned long iova_length, unsigned long *iova,
 			unsigned long *buffer_size,
-			unsigned long flags);
+			unsigned long flags, unsigned long iommu_flags);
 
 
 /**
@@ -385,6 +451,48 @@ int ion_handle_get_size(struct ion_client *client, struct ion_handle *handle,
 void ion_unmap_iommu(struct ion_client *client, struct ion_handle *handle,
 			int domain_num, int partition_num);
 
+
+/**
+ * ion_secure_heap - secure a heap
+ *
+ * @client - a client that has allocated from the heap heap_id
+ * @heap_id - heap id to secure.
+ *
+ * Secure a heap
+ * Returns 0 on success
+ */
+int ion_secure_heap(struct ion_device *dev, int heap_id);
+
+/**
+ * ion_unsecure_heap - un-secure a heap
+ *
+ * @client - a client that has allocated from the heap heap_id
+ * @heap_id - heap id to un-secure.
+ *
+ * Un-secure a heap
+ * Returns 0 on success
+ */
+int ion_unsecure_heap(struct ion_device *dev, int heap_id);
+
+/**
+ * msm_ion_secure_heap - secure a heap. Wrapper around ion_secure_heap.
+ *
+  * @heap_id - heap id to secure.
+ *
+ * Secure a heap
+ * Returns 0 on success
+ */
+int msm_ion_secure_heap(int heap_id);
+
+/**
+ * msm_ion_unsecure_heap - unsecure a heap. Wrapper around ion_unsecure_heap.
+ *
+  * @heap_id - heap id to secure.
+ *
+ * Un-secure a heap
+ * Returns 0 on success
+ */
+int msm_ion_unsecure_heap(int heap_id);
 
 #else
 static inline struct ion_client *ion_client_create(struct ion_device *dev,
@@ -463,7 +571,9 @@ static inline int ion_map_iommu(struct ion_client *client,
 			struct ion_handle *handle, int domain_num,
 			int partition_num, unsigned long align,
 			unsigned long iova_length, unsigned long *iova,
-			unsigned long flags)
+			unsigned long *buffer_size,
+			unsigned long flags,
+			unsigned long iommu_flags)
 {
 	return -ENODEV;
 }
@@ -475,7 +585,27 @@ static inline void ion_unmap_iommu(struct ion_client *client,
 	return;
 }
 
+static inline int ion_secure_heap(struct ion_device *dev, int heap_id)
+{
+	return -ENODEV;
 
+}
+
+static inline int ion_unsecure_heap(struct ion_device *dev, int heap_id)
+{
+	return -ENODEV;
+}
+
+static inline int msm_ion_secure_heap(int heap_id)
+{
+	return -ENODEV;
+
+}
+
+static inline int msm_ion_unsecure_heap(int heap_id)
+{
+	return -ENODEV;
+}
 #endif /* CONFIG_ION */
 #endif /* __KERNEL__ */
 

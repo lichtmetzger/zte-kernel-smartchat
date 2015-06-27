@@ -17,10 +17,13 @@ endif
 	endif
 endif
 
-obj-$(CONFIG_ARCH_MSM_ARM11) += acpuclock-7201.o
+obj-y += acpuclock.o
+obj-$(CONFIG_ARCH_MSM7X01A) += acpuclock-7201.o
+obj-$(CONFIG_ARCH_MSM7X25) += acpuclock-7201.o
+obj-$(CONFIG_ARCH_MSM7X27) += acpuclock-7201.o
 obj-$(CONFIG_ARCH_MSM_SCORPION) += pmu.o
-obj-$(CONFIG_ARCH_MSM_CORTEX_A5) += acpuclock-7201.o
 obj-$(CONFIG_ARCH_MSM_KRAIT) += msm-krait-l2-accessors.o pmu.o
+obj-$(CONFIG_ARCH_MSM7X27A) += pmu.o
 
 ifndef CONFIG_MSM_SMP
 obj-$(CONFIG_ARCH_MSM_SCORPION) += msm_fault_handlers.o
@@ -203,6 +206,7 @@ obj-$(CONFIG_MACH_MSM8960_MTP) += board-msm8960.o devices-8960.o board-msm8960-r
 obj-$(CONFIG_MACH_MSM8960_FLUID) += board-msm8960.o devices-8960.o board-msm8960-regulator.o
 obj-$(CONFIG_ARCH_MSM8960) += bms-batterydata.o
 obj-$(CONFIG_ARCH_APQ8064) += board-apq8064.o devices-8064.o
+obj-$(CONFIG_ARCH_MSM9615) += board-9615.o devices-9615.o
 #Add ZTE board
 obj-$(CONFIG_MACH_ATLAS32) += board-zte-atlas32.o devices-msm7x27a.o
 obj-$(CONFIG_MACH_BLADE2) += board-zte-blade2.o devices-msm7x27a.o
@@ -235,6 +239,7 @@ obj-$(CONFIG_MSM_XO) += msm_xo.o
 obj-$(CONFIG_MSM_BUS_SCALING) += msm_bus/
 
 obj-$(CONFIG_MSM_IOMMU)		+= iommu.o iommu_dev.o devices-iommu.o iommu_domains.o
+obj-$(CONFIG_MSM_EVENT_TIMER)		+= event_timer.o
 
 ifdef CONFIG_VCM
 obj-$(CONFIG_ARCH_MSM8X60) += board-msm8x60-vcm.o
@@ -246,6 +251,7 @@ obj-$(CONFIG_ARCH_QSD8X50) += gpiomux-8x50.o gpiomux-v1.o gpiomux.o
 obj-$(CONFIG_ARCH_MSM8X60) += gpiomux-8x60.o gpiomux-v2.o gpiomux.o
 obj-$(CONFIG_ARCH_MSM8960) += gpiomux-v2.o gpiomux.o
 obj-$(CONFIG_ARCH_APQ8064) += gpiomux-v2.o gpiomux.o
+obj-$(CONFIG_ARCH_MSM9615) += gpiomux-v2.o gpiomux.o
 
 ifdef CONFIG_FSM9XXX_TLMM
 obj-y   += gpio-fsm9xxx.o

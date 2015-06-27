@@ -21,6 +21,7 @@
 #ifdef CONFIG_SPI_QSD
 #include <linux/spi/spi.h>
 #endif
+#include <linux/msm_ssbi.h>
 #include <linux/mfd/pmic8058.h>
 #include <linux/mfd/marimba.h>
 #include <linux/i2c.h>
@@ -79,6 +80,7 @@
 #endif
 #include "pm.h"
 #include "spm.h"
+#include "acpuclock.h"
 #include <mach/dal_axi.h>
 #include <mach/msm_serial_hs.h>
 #include <mach/qdsp5v2/mi2s.h>
@@ -93,6 +95,11 @@
 #else
 #define MSM_FB_SIZE            0x500000
 #endif
+/*
+ * Reserve space for double buffered full screen
+ * res V4L2 video overlay - i.e. 1280x720x1.5x2
+ */
+#define MSM_V4L2_VIDEO_OVERLAY_BUF_SIZE 2764800
 #define MSM_PMEM_ADSP_SIZE      0x1E00000
 #define MSM_FLUID_PMEM_ADSP_SIZE	0x2800000
 #define PMEM_KERNEL_EBI0_SIZE   0x600000
@@ -799,6 +806,7 @@ static struct pmic8058_leds_platform_data pm8058_fluid_leds_data = {
 
 static struct pm8058_platform_data pm8058_7x30_data = {
 	.irq_base = PMIC8058_IRQ_BASE,
+	.irq = MSM_GPIO_TO_INT(PMIC_GPIO_INT),
 
 	.num_subdevs = ARRAY_SIZE(pm8058_subdevs),
 	.sub_devices = pm8058_subdevs,
@@ -812,6 +820,16 @@ static struct i2c_board_info pm8058_boardinfo[] __initdata = {
 		.platform_data = &pm8058_7x30_data,
 	},
 };
+
+#ifdef CONFIG_MSM_SSBI
+static struct msm_ssbi_platform_data msm7x30_ssbi_pm8058_pdata = {
+	.controller_type = MSM_SBI_CTRL_SSBI2,
+	.slave	= {
+		.name			= "pm8058-core",
+		.platform_data		= &pm8058_7x30_data,
+	},
+};
+#endif
 
 static struct i2c_board_info cy8info[] __initdata = {
 	{
@@ -4050,6 +4068,14 @@ static struct resource msm_fb_resources[] = {
 	}
 };
 
+#ifdef CONFIG_MSM_V4L2_VIDEO_OVERLAY_DEVICE
+static struct resource msm_v4l2_video_overlay_resources[] = {
+	{
+	   .flags = IORESOURCE_DMA,
+	}
+};
+#endif
+
 static int msm_fb_detect_panel(const char *name)
 {
 	if (machine_is_msm7x30_fluid()) {
@@ -4082,6 +4108,16 @@ static struct platform_device msm_fb_device = {
 		.platform_data = &msm_fb_pdata,
 	}
 };
+
+#ifdef CONFIG_MSM_V4L2_VIDEO_OVERLAY_DEVICE
+
+static struct platform_device msm_v4l2_video_overlay_device = {
+	.name   = "msm_v4l2_overlay_pd",
+	.id     = 0,
+	.num_resources  = ARRAY_SIZE(msm_v4l2_video_overlay_resources),
+	.resource       = msm_v4l2_video_overlay_resources,
+};
+#endif
 
 static struct platform_device msm_migrate_pages_device = {
 	.name   = "msm_migrate_pages",
@@ -5557,12 +5593,19 @@ static struct platform_device *devices[] __initdata = {
 	&android_usb_device,
 #endif
 	&qsd_device_spi,
+
+#ifdef CONFIG_MSM_SSBI
+	&msm_device_ssbi_pmic1,
+#endif
 #ifdef CONFIG_I2C_SSBI
 	&msm_device_ssbi6,
 	&msm_device_ssbi7,
 #endif
 	&android_pmem_device,
 	&msm_fb_device,
+#ifdef CONFIG_MSM_V4L2_VIDEO_OVERLAY_DEVICE
+	&msm_v4l2_video_overlay_device,
+#endif
 	&msm_migrate_pages_device,
 	&mddi_toshiba_device,
 	&lcdc_toshiba_panel_device,
@@ -5774,11 +5817,6 @@ static struct msm_i2c_ssbi_platform_data msm_i2c_ssbi7_pdata = {
 	.controller_type = MSM_SBI_CTRL_SSBI,
 };
 #endif
-
-static struct msm_acpu_clock_platform_data msm7x30_clock_data = {
-	.acpu_switch_time_us = 50,
-	.vdd_switch_time_us = 62,
-};
 
 static void __init msm7x30_init_irq(void)
 {
@@ -7497,6 +7535,16 @@ static void __init msm7x30_allocate_memory_regions(void)
 	msm_fb_resources[0].end = msm_fb_resources[0].start + size - 1;
 	pr_info("allocating %lu bytes at %p (%lx physical) for fb\n",
 		size, addr, __pa(addr));
+
+#ifdef CONFIG_MSM_V4L2_VIDEO_OVERLAY_DEVICE
+	size = MSM_V4L2_VIDEO_OVERLAY_BUF_SIZE;
+	addr = alloc_bootmem_align(size, 0x1000);
+	msm_v4l2_video_overlay_resources[0].start = __pa(addr);
+	msm_v4l2_video_overlay_resources[0].end =
+		msm_v4l2_video_overlay_resources[0].start + size - 1;
+	pr_debug("allocating %lu bytes at %p (%lx physical) for v4l2\n",
+		size, addr, __pa(addr));
+#endif
 }
 
 static void __init msm7x30_map_io(void)

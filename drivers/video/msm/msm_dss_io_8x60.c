@@ -32,52 +32,65 @@ static struct clk *dsi_m_pclk;
 static struct clk *dsi_s_pclk;
 
 static struct clk *amp_pclk;
+int mipi_dsi_clk_on;
 
-void mipi_dsi_clk_init(struct platform_device *pdev)
+int mipi_dsi_clk_init(struct platform_device *pdev)
 {
-	amp_pclk = clk_get(NULL, "amp_pclk");
-	if (IS_ERR(amp_pclk)) {
+	struct device *dev = &pdev->dev;
+	amp_pclk = clk_get(dev, "arb_clk");
+	if (IS_ERR_OR_NULL(amp_pclk)) {
 		pr_err("can't find amp_pclk\n");
+		amp_pclk = NULL;
 		goto mipi_dsi_clk_err;
 	}
 
-	dsi_m_pclk = clk_get(NULL, "dsi_m_pclk");
-	if (IS_ERR(dsi_m_pclk)) {
+	dsi_m_pclk = clk_get(dev, "master_iface_clk");
+	if (IS_ERR_OR_NULL(dsi_m_pclk)) {
 		pr_err("can't find dsi_m_pclk\n");
+		dsi_m_pclk = NULL;
 		goto mipi_dsi_clk_err;
 	}
 
-	dsi_s_pclk = clk_get(NULL, "dsi_s_pclk");
-	if (IS_ERR(dsi_s_pclk)) {
+	dsi_s_pclk = clk_get(dev, "slave_iface_clk");
+	if (IS_ERR_OR_NULL(dsi_s_pclk)) {
 		pr_err("can't find dsi_s_pclk\n");
+		dsi_s_pclk = NULL;
 		goto mipi_dsi_clk_err;
 	}
 
-	dsi_byte_div_clk = clk_get(NULL, "dsi_byte_div_clk");
-	if (IS_ERR(dsi_byte_div_clk)) {
+	dsi_byte_div_clk = clk_get(dev, "byte_clk");
+	if (IS_ERR_OR_NULL(dsi_byte_div_clk)) {
 		pr_err("can't find dsi_byte_div_clk\n");
+		dsi_byte_div_clk = NULL;
 		goto mipi_dsi_clk_err;
 	}
 
-	dsi_esc_clk = clk_get(NULL, "dsi_esc_clk");
-	if (IS_ERR(dsi_esc_clk)) {
+	dsi_esc_clk = clk_get(dev, "esc_clk");
+	if (IS_ERR_OR_NULL(dsi_esc_clk)) {
 		printk(KERN_ERR "can't find dsi_esc_clk\n");
+		dsi_esc_clk = NULL;
 		goto mipi_dsi_clk_err;
 	}
 
-	return;
+	return 0;
 
 mipi_dsi_clk_err:
 	mipi_dsi_clk_deinit(NULL);
+	return -EPERM;
 }
 
 void mipi_dsi_clk_deinit(struct device *dev)
 {
-	clk_put(amp_pclk);
-	clk_put(dsi_m_pclk);
-	clk_put(dsi_s_pclk);
-	clk_put(dsi_byte_div_clk);
-	clk_put(dsi_esc_clk);
+	if (amp_pclk)
+		clk_put(amp_pclk);
+	if (dsi_m_pclk)
+		clk_put(dsi_m_pclk);
+	if (dsi_s_pclk)
+		clk_put(dsi_s_pclk);
+	if (dsi_byte_div_clk)
+		clk_put(dsi_byte_div_clk);
+	if (dsi_esc_clk)
+		clk_put(dsi_esc_clk);
 }
 
 static void mipi_dsi_clk_ctrl(struct dsi_clk_desc *clk, int clk_en)
@@ -390,24 +403,61 @@ void mipi_dsi_phy_init(int panel_ndx, struct msm_panel_info const *panel_info,
 	wmb();
 }
 
+void cont_splash_clk_ctrl(int enable)
+{
+}
+
+void mipi_dsi_prepare_clocks(void)
+{
+	clk_prepare(amp_pclk);
+	clk_prepare(dsi_m_pclk);
+	clk_prepare(dsi_s_pclk);
+	clk_prepare(dsi_byte_div_clk);
+	clk_prepare(dsi_esc_clk);
+}
+
+void mipi_dsi_unprepare_clocks(void)
+{
+	clk_unprepare(dsi_esc_clk);
+	clk_unprepare(dsi_byte_div_clk);
+	clk_unprepare(dsi_m_pclk);
+	clk_unprepare(dsi_s_pclk);
+	clk_unprepare(amp_pclk);
+}
+
 void mipi_dsi_ahb_ctrl(u32 enable)
 {
+	static int ahb_ctrl_done;
 	if (enable) {
+		if (ahb_ctrl_done) {
+			pr_info("%s: ahb clks already ON\n", __func__);
+			return;
+		}
 		clk_enable(amp_pclk); /* clock for AHB-master to AXI */
 		clk_enable(dsi_m_pclk);
 		clk_enable(dsi_s_pclk);
 		mipi_dsi_ahb_en();
 		mipi_dsi_sfpb_cfg();
+		ahb_ctrl_done = 1;
 	} else {
+		if (ahb_ctrl_done == 0) {
+			pr_info("%s: ahb clks already OFF\n", __func__);
+			return;
+		}
 		clk_disable(dsi_m_pclk);
 		clk_disable(dsi_s_pclk);
 		clk_disable(amp_pclk); /* clock for AHB-master to AXI */
+		ahb_ctrl_done = 0;
 	}
 }
 
 void mipi_dsi_clk_enable(void)
 {
 	u32 pll_ctrl = MIPI_INP(MIPI_DSI_BASE + 0x0200);
+	if (mipi_dsi_clk_on) {
+		pr_info("%s: mipi_dsi_clks already ON\n", __func__);
+		return;
+	}
 	MIPI_OUTP(MIPI_DSI_BASE + 0x0200, pll_ctrl | 0x01);
 	mb();
 
@@ -417,10 +467,15 @@ void mipi_dsi_clk_enable(void)
 	mipi_dsi_clk_ctrl(&dsicore_clk, 1);
 	clk_enable(dsi_byte_div_clk);
 	clk_enable(dsi_esc_clk);
+	mipi_dsi_clk_on = 1;
 }
 
 void mipi_dsi_clk_disable(void)
 {
+	if (mipi_dsi_clk_on == 0) {
+		pr_info("%s: mipi_dsi_clks already OFF\n", __func__);
+		return;
+	}
 	clk_disable(dsi_esc_clk);
 	clk_disable(dsi_byte_div_clk);
 
@@ -428,6 +483,7 @@ void mipi_dsi_clk_disable(void)
 	mipi_dsi_clk_ctrl(&dsicore_clk, 0);
 	/* DSIPHY_PLL_CTRL_0, disable dsi pll */
 	MIPI_OUTP(MIPI_DSI_BASE + 0x0200, 0x40);
+	mipi_dsi_clk_on = 0;
 }
 
 void mipi_dsi_phy_ctrl(int on)

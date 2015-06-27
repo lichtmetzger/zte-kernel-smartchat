@@ -19,8 +19,16 @@
 
 #include <linux/clkdev.h>
 #include <linux/platform_device.h>
-
 #include "clock.h"
+
+void __init msm9615_device_init(void);
+void __init msm9615_map_io(void);
+void __init msm_map_msm9615_io(void);
+void __init msm9615_init_irq(void);
+void __init msm_rotator_update_bus_vectors(unsigned int xres,
+	unsigned int yres);
+void __init msm_rotator_set_split_iommu_domain(void);
+
 extern struct platform_device asoc_msm_pcm;
 extern struct platform_device asoc_msm_dai0;
 extern struct platform_device asoc_msm_dai1;
@@ -108,8 +116,13 @@ extern struct platform_device msm_device_tssc;
 
 extern struct platform_device msm_rotator_device;
 
+#ifdef CONFIG_MSM_BUS_SCALING
+extern struct msm_bus_scale_pdata rotator_bus_scale_pdata;
+#endif
+
 extern struct platform_device msm_device_tsif[2];
 
+extern struct platform_device msm_device_ssbi_pmic1;
 extern struct platform_device msm_device_ssbi1;
 extern struct platform_device msm_device_ssbi2;
 extern struct platform_device msm_device_ssbi3;

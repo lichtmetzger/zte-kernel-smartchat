@@ -250,28 +250,9 @@ static struct acpu_level acpu_freq_tbl[] = {
 	{ 0, { 0 } }
 };
 
-unsigned long acpuclk_get_rate(int cpu)
+static unsigned long acpuclk_8960_get_rate(int cpu)
 {
 	return scalable[cpu].current_speed->khz;
-}
-
-uint32_t acpuclk_get_switch_time(void)
-{
-	return 0;
-}
-
-unsigned long acpuclk_power_collapse(void)
-{
-	int ret = acpuclk_get_rate(smp_processor_id());
-	acpuclk_set_rate(smp_processor_id(), STBY_KHZ, SETRATE_PC);
-	return ret;
-}
-
-unsigned long acpuclk_wait_for_irq(void)
-{
-	int ret = acpuclk_get_rate(smp_processor_id());
-	acpuclk_set_rate(smp_processor_id(), STBY_KHZ, SETRATE_SWFI);
-	return ret;
 }
 
 /* Read an 'indirectly' addressed L2 CP15 register. */
@@ -649,7 +630,8 @@ static unsigned int calculate_vdd_core(struct acpu_level *tgt)
 }
 
 /* Set the CPU's clock rate and adjust the L2 rate, if appropriate. */
-int acpuclk_set_rate(int cpu, unsigned long rate, enum setrate_reason reason)
+static int acpuclk_8960_set_rate(int cpu, unsigned long rate,
+				 enum setrate_reason reason)
 {
 	struct core_speed *strt_acpu_s, *tgt_acpu_s;
 	struct l2_level *tgt_l2_l;
@@ -705,7 +687,7 @@ int acpuclk_set_rate(int cpu, unsigned long rate, enum setrate_reason reason)
 	/*
 	 * Update the L2 vote and apply the rate change. A spinlock is
 	 * necessary to ensure L2 rate is calulated and set atomically,
-	 * even if acpuclk_set_rate() is called from an atomic context
+	 * even if acpuclk_8960_set_rate() is called from an atomic context
 	 * and the driver_lock mutex is not acquired.
 	 */
 	spin_lock_irqsave(&l2_lock, flags);
@@ -816,8 +798,8 @@ static void __init init_clock_sources(struct scalable *sc,
 	sc->current_speed = tgt_s;
 
 	/*
-	 * Set this flag so that the first call to acpuclk_set_rate() can drop
-	 * voltages and set initial bus bandwidth requests.
+	 * Set this flag so that the first call to acpuclk_8960_set_rate() can
+	 * drop voltages and set initial bus bandwidth requests.
 	 */
 	sc->first_set_call = true;
 }
@@ -930,17 +912,17 @@ static int __cpuinit acpuclock_cpu_callback(struct notifier_block *nfb,
 		break;
 	case CPU_DEAD:
 	case CPU_DEAD_FROZEN:
-		prev_khz[cpu] = acpuclk_get_rate(cpu);
+		prev_khz[cpu] = acpuclk_8960_get_rate(cpu);
 		/* Fall through. */
 	case CPU_UP_CANCELED:
 	case CPU_UP_CANCELED_FROZEN:
-		acpuclk_set_rate(cpu, HOT_UNPLUG_KHZ, SETRATE_HOTPLUG);
+		acpuclk_8960_set_rate(cpu, HOT_UNPLUG_KHZ, SETRATE_HOTPLUG);
 		break;
 	case CPU_UP_PREPARE:
 	case CPU_UP_PREPARE_FROZEN:
 		if (WARN_ON(!prev_khz[cpu]))
 			prev_khz[cpu] = acpu_freq_tbl->speed.khz;
-		acpuclk_set_rate(cpu, prev_khz[cpu], SETRATE_HOTPLUG);
+		acpuclk_8960_set_rate(cpu, prev_khz[cpu], SETRATE_HOTPLUG);
 		break;
 	case CPU_STARTING:
 	case CPU_STARTING_FROZEN:
@@ -968,5 +950,13 @@ void __init msm_acpu_clock_init(struct msm_acpu_clock_platform_data *clkdata)
 	regulator_init();
 	bus_init();
 	cpufreq_table_init();
+
+	acpuclk_register(&acpuclk_8960_data);
 	register_hotcpu_notifier(&acpuclock_cpu_notifier);
+
+	return 0;
 }
+
+struct acpuclk_soc_data acpuclk_8960_soc_data __initdata = {
+	.init = acpuclk_8960_init,
+};

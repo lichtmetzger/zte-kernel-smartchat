@@ -60,6 +60,7 @@
 #include <mach/dma.h>
 #include <mach/msm_dsps.h>
 #include <mach/msm_xo.h>
+#include <mach/restart.h>
 
 #ifdef CONFIG_WCD9310_CODEC
 #include <linux/slimbus/slimbus.h>
@@ -1883,11 +1884,6 @@ static int __init gpiomux_init(void)
 	return 0;
 }
 
-static struct msm_acpu_clock_platform_data msm8960_acpu_clock_data = {
-	.acpu_switch_time_us = 0,
-	.vdd_switch_time_us = 0,
-};
-
 #define MSM_SHARED_RAM_PHYS 0x80000000
 
 static struct pm8921_adc_amux pm8921_adc_channels_data[] = {
@@ -3564,7 +3560,7 @@ static void __init msm8960_sim_init(void)
 	platform_add_devices(common_devices, ARRAY_SIZE(common_devices));
 	pm8921_gpio_mpp_init();
 	platform_add_devices(sim_devices, ARRAY_SIZE(sim_devices));
-	msm_acpu_clock_init(&msm8960_acpu_clock_data);
+	acpuclk_init(&acpuclk_8960_soc_data);
 
 	msm8960_device_qup_spi_gsbi1.dev.platform_data =
 				&msm8960_qup_spi_gsbi1_pdata;
@@ -3624,6 +3620,8 @@ static void __init msm8960_cdp_init(void)
 	BUG_ON(msm_rpm_init(&msm_rpm_data));
 	BUG_ON(msm_rpmrs_levels_init(msm_rpmrs_levels,
 				ARRAY_SIZE(msm_rpmrs_levels)));
+
+	pmic_reset_irq = PM8921_IRQ_BASE + PM8921_RESOUT_IRQ;
 	regulator_suppress_info_printing();
 	if (msm_xo_init())
 		pr_err("Failed to initialize XO votes\n");
@@ -3651,7 +3649,7 @@ static void __init msm8960_cdp_init(void)
 	platform_add_devices(cdp_devices, ARRAY_SIZE(cdp_devices));
 	msm8960_init_cam();
 	msm8960_init_mmc();
-	msm_acpu_clock_init(&msm8960_acpu_clock_data);
+	acpuclk_init(&acpuclk_8960_soc_data);
 	register_i2c_devices();
 	msm8960_wcnss_init();
 	msm_fb_add_devices();

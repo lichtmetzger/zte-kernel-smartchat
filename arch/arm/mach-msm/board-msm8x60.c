@@ -16,6 +16,7 @@
 #include <linux/gpio.h>
 #include <linux/irq.h>
 #include <linux/io.h>
+#include <linux/msm_ssbi.h>
 #include <linux/mfd/pmic8058.h>
 
 #include <linux/input/pmic8058-keypad.h>
@@ -88,6 +89,7 @@
 #include <mach/sdio_al.h>
 #include <mach/rpm.h>
 #include <mach/rpm-regulator.h>
+#include <mach/restart.h>
 
 #include "devices.h"
 #include "devices-msm8x60.h"
@@ -102,6 +104,7 @@
 #include "peripheral-loader.h"
 #include <linux/platform_data/qcom_crypto_device.h>
 #include "rpm_resources.h"
+#include "acpuclock.h"
 
 #define MSM_SHARED_RAM_PHYS 0x40000000
 
@@ -393,9 +396,6 @@ static struct msm_spm_platform_data msm_spm_data[] __initdata = {
 
 		.vctl_timeout_us = 50,
 	},
-};
-
-static struct msm_acpu_clock_platform_data msm8x60_acpu_clock_data = {
 };
 
 /*
@@ -3024,6 +3024,7 @@ void *pmem_setup_smi_region(void)
 {
 	return (void *)msm_bus_scale_register_client(&smi_client_pdata);
 }
+#ifndef CONFIG_MSM_MULTIMEDIA_USE_ION
 static struct android_pmem_platform_data android_pmem_smipool_pdata = {
 	.name = "pmem_smipool",
 	.allocator_type = PMEM_ALLOCATORTYPE_BITMAP,
@@ -4997,6 +4998,9 @@ static struct platform_device *surf_devices[] __initdata = {
 #ifdef CONFIG_SERIAL_MSM_HS
 	&msm_device_uart_dm1,
 #endif
+#ifdef CONFIG_MSM_SSBI
+	&msm_device_ssbi_pmic1,
+#endif
 #ifdef CONFIG_I2C_SSBI
 	&msm_device_ssbi1,
 	&msm_device_ssbi2,
@@ -6295,6 +6299,7 @@ static struct mfd_cell pm8058_charger_sub_dev = {
 
 static struct pm8058_platform_data pm8058_platform_data = {
 	.irq_base = PM8058_IRQ_BASE,
+	.irq = MSM_GPIO_TO_INT(PM8058_GPIO_INT),
 
 	.num_subdevs = ARRAY_SIZE(pm8058_subdevs),
 	.sub_devices = pm8058_subdevs,
@@ -6308,7 +6313,17 @@ static struct i2c_board_info pm8058_boardinfo[] __initdata = {
 		.platform_data = &pm8058_platform_data,
 	},
 };
-#endif /* CONFIG_PMIC8058 */
+
+#ifdef CONFIG_MSM_SSBI
+static struct msm_ssbi_platform_data msm8x60_ssbi_pm8058_pdata __devinitdata = {
+	.controller_type = MSM_SBI_CTRL_PMIC_ARBITER,
+	.slave	= {
+		.name			= "pm8058-core",
+		.platform_data		= &pm8058_platform_data,
+	},
+};
+#endif
+#endif  /* CONFIG_PMIC8058 */
 
 #if defined(CONFIG_TOUCHDISC_VTD518_SHINETSU) || \
 		defined(CONFIG_TOUCHDISC_VTD518_SHINETSU_MODULE)
@@ -7328,6 +7343,11 @@ static void __init msm8x60_init_buses(void)
 	msm_device_ssbi1.dev.platform_data = &msm_ssbi1_pdata;
 	msm_device_ssbi2.dev.platform_data = &msm_ssbi2_pdata;
 	msm_device_ssbi3.dev.platform_data = &msm_ssbi3_pdata;
+#endif
+
+#ifdef CONFIG_MSM_SSBI
+	msm_device_ssbi_pmic1.dev.platform_data =
+				&msm8x60_ssbi_pm8058_pdata;
 #endif
 
 	if (machine_is_msm8x60_fluid()) {
@@ -9905,6 +9925,8 @@ static void __init msm8x60_init(struct msm_board_data *board_data)
 {
 	uint32_t soc_platform_version;
 
+	pmic_reset_irq = PM8058_RESOUT_IRQ(PM8058_IRQ_BASE);
+
 	/*
 	 * Initialize RPM first as other drivers and devices may need
 	 * it for their initialization.
@@ -9976,7 +9998,7 @@ static void __init msm8x60_init(struct msm_board_data *board_data)
 	platform_add_devices(early_devices, ARRAY_SIZE(early_devices));
 	/* CPU frequency control is not supported on simulated targets. */
 	if (!machine_is_msm8x60_rumi3() && !machine_is_msm8x60_sim())
-		msm_acpu_clock_init(&msm8x60_acpu_clock_data);
+		acpuclk_init(&acpuclk_8x60_soc_data);
 
 	/* No EBI2 on 8660 charm targets */
 	if (!machine_is_msm8x60_fusion() && !machine_is_msm8x60_fusn_ffa())

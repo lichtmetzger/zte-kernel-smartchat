@@ -20,7 +20,7 @@ static struct msm_panel_info pinfo;
 static struct mipi_dsi_phy_ctrl dsi_video_mode_phy_db = {
 	/* 600*1024, RGB888, 3 Lane 55 fps video mode */
     /* regulator */
-	{0x03, 0x0a, 0x04, 0x00, 0x20},
+	{0x09, 0x08, 0x05, 0x00, 0x20},
 	/* timing */
 	{0xab, 0x8a, 0x18, 0x00, 0x92, 0x97, 0x1b, 0x8c,
 	0x0c, 0x03, 0x04, 0xa0},
@@ -86,6 +86,7 @@ static int __init mipi_video_toshiba_wsvga_pt_init(void)
 	pinfo.mipi.data_lane2 = TRUE;
 	pinfo.mipi.t_clk_post = 0x20;
 	pinfo.mipi.t_clk_pre = 0x2d;
+	pinfo.mipi.esc_byte_ratio = 4;
 	pinfo.mipi.stream = 0; /* dma_p */
 	pinfo.mipi.mdp_trigger = 0;
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;

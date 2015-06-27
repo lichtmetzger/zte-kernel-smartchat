@@ -149,6 +149,8 @@ struct mipi_panel_info {
 	char mdp_trigger;
 	char dma_trigger;
 	uint32 dsi_pclk_rate;
+	/* byte to esc clk ratio */
+	uint32 esc_byte_ratio;
 	/* The packet-size should not bet changed */
 	char no_max_pkt_size;
 	/* Clock required during LP commands */
@@ -178,7 +180,7 @@ struct msm_panel_info {
 	__u32 frame_count;
 	__u32 is_3d_panel;
 	__u32 frame_rate;
-
+	__u32 frame_interval;
 
 	struct mddi_panel_info mddi;
 	struct lcd_panel_info lcd;

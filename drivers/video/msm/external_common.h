@@ -225,6 +225,7 @@ struct external_common_state_type {
 /* The external interface driver needs to initialize the common state. */
 extern struct external_common_state_type *external_common_state;
 extern struct mutex external_common_state_hpd_mutex;
+extern struct mutex hdmi_msm_state_mutex;
 
 #ifdef CONFIG_FB_MSM_HDMI_COMMON
 #define VFRMT_NOT_SUPPORTED(VFRMT) \
@@ -241,6 +242,9 @@ const char *video_format_2string(uint32 format);
 bool hdmi_common_get_video_format_from_drv_data(struct msm_fb_data_type *mfd);
 const struct hdmi_disp_mode_timing_type *hdmi_common_get_mode(uint32 mode);
 const struct hdmi_disp_mode_timing_type *hdmi_common_get_supported_mode(
+	uint32 mode);
+const struct hdmi_disp_mode_timing_type *hdmi_mhl_get_mode(uint32 mode);
+const struct hdmi_disp_mode_timing_type *hdmi_mhl_get_supported_mode(
 	uint32 mode);
 void hdmi_common_init_panel_info(struct msm_panel_info *pinfo);
 #endif

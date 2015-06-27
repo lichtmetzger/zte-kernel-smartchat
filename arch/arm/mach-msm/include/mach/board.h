@@ -28,16 +28,6 @@
 #include <mach/msm_bus.h>
 #endif
 
-/* platform device data structures */
-struct msm_acpu_clock_platform_data {
-	uint32_t acpu_switch_time_us;
-	uint32_t max_speed_delta_khz;
-	uint32_t vdd_switch_time_us;
-	unsigned int max_axi_khz;
-	unsigned int max_vdd;
-	int (*acpu_set_vdd) (int mvolts);
-};
-
 struct msm_camera_io_ext {
 	uint32_t mdcphy;
 	uint32_t mdcsz;
@@ -252,6 +242,8 @@ enum msm_mdp_hw_revision {
 	MDP_REV_40,
 	MDP_REV_41,
 	MDP_REV_42,
+	MDP_REV_43,
+	MDP_REV_44,
 };
 
 struct msm_panel_common_pdata {
@@ -263,9 +255,7 @@ struct msm_panel_common_pdata {
 	void (*panel_config_gpio)(int);
 	int (*vga_switch)(int select_vga);
 	int *gpio_num;
-	int mdp_core_clk_rate;
-	unsigned num_mdp_clk;
-	int *mdp_core_clk_table;
+	u32 mdp_max_clk;
 #ifdef CONFIG_MSM_BUS_SCALING
 	struct msm_bus_scale_pdata *mdp_bus_scale_table;
 #endif
@@ -274,6 +264,7 @@ struct msm_panel_common_pdata {
 	u32 ov1_wb_size; /* overlay1 writeback size */
 	u32 mem_hid;
 	char cont_splash_enabled;
+	char mdp_iommu_split_domain;
 };
 
 struct lcdc_platform_data {
@@ -304,6 +295,7 @@ struct mipi_dsi_platform_data {
 	int (*dsi_power_save)(int on);
 	int (*dsi_client_reset)(void);
 	int (*get_lane_config)(void);
+	char (*splash_is_enabled)(void);
 	int target_type;
 };
 
@@ -317,10 +309,17 @@ struct lvds_panel_platform_data {
 	int *gpio;
 };
 
+struct msm_wfd_platform_data {
+	char (*wfd_check_mdp_iommu_split)(void);
+};
+
+#define PANEL_NAME_MAX_LEN 50
 struct msm_fb_platform_data {
 	int (*detect_client)(const char *name);
 	int mddi_prescan;
 	int (*allow_set_offset)(void);
+	char prim_panel_name[PANEL_NAME_MAX_LEN];
+	char ext_panel_name[PANEL_NAME_MAX_LEN];
 };
 
 struct msm_hdmi_platform_data {
@@ -377,7 +376,6 @@ void __init msm_map_apq8064_io(void);
 void __init msm_map_msm7x30_io(void);
 void __init msm_map_fsm9xxx_io(void);
 void __init msm_init_irq(void);
-void __init msm_acpu_clock_init(struct msm_acpu_clock_platform_data *);
 
 struct mmc_platform_data;
 int __init msm_add_sdcc(unsigned int controller,
