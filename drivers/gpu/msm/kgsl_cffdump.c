@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2010-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -326,7 +326,7 @@ void kgsl_cffdump_init()
 	cpumask_t mask;
 
 	cpumask_clear(&mask);
-	cpumask_set_cpu(1, &mask);
+	cpumask_set_cpu(0, &mask);
 	sched_setaffinity(0, &mask);
 #endif
 	if (!debugfs_dir || IS_ERR(debugfs_dir)) {
@@ -359,7 +359,7 @@ void kgsl_cffdump_destroy()
 void kgsl_cffdump_open(enum kgsl_deviceid device_id)
 {
 	kgsl_cffdump_memory_base(device_id, KGSL_PAGETABLE_BASE,
-			CONFIG_MSM_KGSL_PAGE_TABLE_SIZE, SZ_256K);
+			kgsl_mmu_get_ptsize(), SZ_256K);
 }
 
 void kgsl_cffdump_memory_base(enum kgsl_deviceid device_id, unsigned int base,

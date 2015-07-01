@@ -62,6 +62,7 @@ enum msm_cpu {
 	MSM_CPU_8064,
 	MSM_CPU_8930,
 	MSM_CPU_7X27AA,
+	MSM_CPU_8625,
 };
 
 #ifdef CONFIG_ZTE_PLATFORM
@@ -243,6 +244,18 @@ static inline int cpu_is_fsm9xxx(void)
 
 	BUG_ON(cpu == MSM_CPU_UNKNOWN);
 	return cpu == FSM_CPU_9XXX;
+}
+
+static inline int cpu_is_msm8625(void)
+{
+#ifdef CONFIG_ARCH_MSM8625
+	enum msm_cpu cpu = socinfo_get_msm_cpu();
+
+	BUG_ON(cpu == MSM_CPU_UNKNOWN);
+	return cpu == MSM_CPU_8625;
+#else
+	return 0;
+#endif
 }
 
 #endif

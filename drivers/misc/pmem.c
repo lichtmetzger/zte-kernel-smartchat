@@ -1,7 +1,7 @@
 /* drivers/android/pmem.c
  *
  * Copyright (C) 2007 Google, Inc.
- * Copyright (c) 2009-2011, Code Aurora Forum. All rights reserved.
+ * Copyright (c) 2009-2012, Code Aurora Forum. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -1142,17 +1142,17 @@ static void bitmap_bits_set_all(uint32_t *bitp, int bit_start, int bit_end)
 
 static int
 bitmap_allocate_contiguous(uint32_t *bitp, int num_bits_to_alloc,
-		int total_bits, int spacing)
+		int total_bits, int spacing, int start_bit)
 {
 	int bit_start, last_bit, word_index;
 
 	if (num_bits_to_alloc <= 0)
 		return -1;
 
-	for (bit_start = 0; ;
-		bit_start = (last_bit +
+	for (bit_start = start_bit; ;
+		bit_start = ((last_bit +
 			(word_index << PMEM_32BIT_WORD_ORDER) + spacing - 1)
-			& ~(spacing - 1)) {
+			& ~(spacing - 1)) + start_bit) {
 		int bit_end = bit_start + num_bits_to_alloc, total_words;
 
 		if (bit_end > total_bits)
@@ -1230,7 +1230,8 @@ static int reserve_quanta(const unsigned int quanta_needed,
 	ret = bitmap_allocate_contiguous(pmem[id].allocator.bitmap.bitmap,
 		quanta_needed,
 		(pmem[id].size + pmem[id].quantum - 1) / pmem[id].quantum,
-		spacing);
+		spacing,
+		start_bit);
 
 #if PMEM_DEBUG
 	if (ret < 0)
@@ -1982,6 +1983,13 @@ int pmem_cache_maint(struct file *file, unsigned int cmd,
 	if (!file)
 		return -EBADF;
 
+	/*
+	 * check that the vaddr passed for flushing is valid
+	 * so that you don't crash the kernel
+	 */
+	if (!pmem_addr->vaddr)
+		return -EINVAL;
+
 	data = file->private_data;
 	id = get_id(file);
 
@@ -2586,6 +2594,7 @@ int pmem_setup(struct android_pmem_platform_data *pdata,
 {
 	int i, index = 0, id;
 	struct vm_struct *pmem_vma = NULL;
+	struct page *page;
 
 	if (id_count >= PMEM_MAX_DEVICES) {
 		pr_alert("pmem: %s: unable to register driver(%s) - no more "
@@ -2786,6 +2795,11 @@ int pmem_setup(struct android_pmem_platform_data *pdata,
 
 	pmem[id].base = allocate_contiguous_memory_nomap(pmem[id].size,
 		pmem[id].memory_type, PAGE_SIZE);
+	if (!pmem[id].base) {
+		pr_err("pmem: Cannot allocate from reserved memory for %s\n",
+		 pdata->name);
+		goto err_misc_deregister;
+	}
 
 	pr_info("allocating %lu bytes at %p (%lx physical) for %s\n",
 		pmem[id].size, pmem[id].vbase, pmem[id].base, pmem[id].name);
@@ -2802,7 +2816,7 @@ int pmem_setup(struct android_pmem_platform_data *pdata,
 			if (!pmem_vma) {
 				pr_err("pmem: Failed to allocate virtual space for "
 					"%s\n", pdata->name);
-				goto out_put_kobj;
+				goto err_free;
 			}
 			pr_err("pmem: Reserving virtual address range %lx - %lx for"
 				" %s\n", (unsigned long) pmem_vma->addr,
@@ -2813,7 +2827,12 @@ int pmem_setup(struct android_pmem_platform_data *pdata,
 	} else
 		pmem[id].area = NULL;
 
-	pmem[id].garbage_pfn = page_to_pfn(alloc_page(GFP_KERNEL));
+	page = alloc_page(GFP_KERNEL);
+	if (!page) {
+		pr_err("pmem: Failed to allocate page for %s\n", pdata->name);
+		goto cleanup_vm;
+	}
+	pmem[id].garbage_pfn = page_to_pfn(page);
 	atomic_set(&pmem[id].allocation_cnt, 0);
 
 	if (pdata->setup_region)
@@ -2827,6 +2846,12 @@ int pmem_setup(struct android_pmem_platform_data *pdata,
 
 	return 0;
 
+cleanup_vm:
+	remove_vm_area(pmem_vma);
+err_free:
+	free_contiguous_memory_by_paddr(pmem[id].base);
+err_misc_deregister:
+	misc_deregister(&pmem[id].dev);
 err_cant_register_device:
 out_put_kobj:
 	kobject_put(&pmem[id].kobj);
@@ -2864,6 +2889,19 @@ static int pmem_remove(struct platform_device *pdev)
 	int id = pdev->id;
 	__free_page(pfn_to_page(pmem[id].garbage_pfn));
 	pm_runtime_disable(&pdev->dev);
+	if (pmem[id].vbase)
+		iounmap(pmem[id].vbase);
+	if (pmem[id].map_on_demand && !pmem[id].reusable && pmem[id].area)
+		free_vm_area(pmem[id].area);
+	if (pmem[id].base)
+		free_contiguous_memory_by_paddr(pmem[id].base);
+	kobject_put(&pmem[id].kobj);
+	if (pmem[id].allocator_type == PMEM_ALLOCATORTYPE_BUDDYBESTFIT)
+		kfree(pmem[id].allocator.buddy_bestfit.buddy_bitmap);
+	else if (pmem[id].allocator_type == PMEM_ALLOCATORTYPE_BITMAP) {
+		kfree(pmem[id].allocator.bitmap.bitmap);
+		kfree(pmem[id].allocator.bitmap.bitm_alloc);
+	}
 	misc_deregister(&pmem[id].dev);
 	return 0;
 }

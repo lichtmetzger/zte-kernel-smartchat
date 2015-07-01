@@ -1023,6 +1023,10 @@ failure_unwind:
 static int __init iommu_init(void)
 {
 	int ret;
+	if (!msm_soc_version_supports_iommu()) {
+		pr_err("IOMMU is not supported on this SoC version.\n");
+		return -ENODEV;
+	}
 
 	ret = platform_device_register(&msm_root_iommu_dev);
 	if (ret != 0) {

@@ -11,6 +11,9 @@
  *
  */
 
+#include <linux/delay.h>
+#include <mach/socinfo.h>
+
 #include "kgsl.h"
 #include "kgsl_sharedmem.h"
 #include "kgsl_cffdump.h"
@@ -161,7 +164,8 @@ const unsigned int a220_registers_count = ARRAY_SIZE(a220_registers) / 2;
 
 static inline int _shader_shadow_size(struct adreno_device *adreno_dev)
 {
-	return adreno_dev->istore_size*ADRENO_ISTORE_BYTES;
+	return adreno_dev->istore_size *
+		(adreno_dev->instruction_size * sizeof(unsigned int));
 }
 
 static inline int _context_size(struct adreno_device *adreno_dev)
@@ -669,7 +673,7 @@ static unsigned int *build_gmem2sys_cmds(struct adreno_device *adreno_dev,
 
 	/* Repartition shaders */
 	*cmds++ = cp_type0_packet(REG_SQ_INST_STORE_MANAGMENT, 1);
-	*cmds++ = 0x180;
+	*cmds++ = adreno_dev->pix_shader_start;
 
 	/* Invalidate Vertex & Pixel instruction code address and sizes */
 	*cmds++ = cp_type3_packet(CP_INVALIDATE_STATE, 1);
@@ -873,7 +877,7 @@ static unsigned int *build_sys2gmem_cmds(struct adreno_device *adreno_dev,
 
 	/* Repartition shaders */
 	*cmds++ = cp_type0_packet(REG_SQ_INST_STORE_MANAGMENT, 1);
-	*cmds++ = 0x180;
+	*cmds++ = adreno_dev->pix_shader_start;
 
 	/* Invalidate Vertex & Pixel instruction code address and sizes */
 	*cmds++ = cp_type3_packet(CP_INVALIDATE_STATE, 1);
@@ -1545,8 +1549,8 @@ static void a2xx_drawctxt_restore(struct adreno_device *adreno_dev,
 	cmds[1] = KGSL_CONTEXT_TO_MEM_IDENTIFIER;
 	cmds[2] = cp_type3_packet(CP_MEM_WRITE, 2);
 	cmds[3] = device->memstore.gpuaddr +
-		KGSL_DEVICE_MEMSTORE_OFFSET(current_context);
-	cmds[4] = (unsigned int) context;
+		KGSL_MEMSTORE_OFFSET(KGSL_MEMSTORE_GLOBAL, current_context);
+	cmds[4] = context->id;
 	adreno_ringbuffer_issuecmds(device, KGSL_CMD_FLAGS_NONE, cmds, 5);
 	kgsl_mmu_setstate(device, context->pagetable);
 
@@ -1672,11 +1676,18 @@ static void a2xx_cp_intrcallback(struct kgsl_device *device)
 
 	if (status & CP_INT_CNTL__RB_INT_MASK) {
 		/* signal intr completion event */
-		unsigned int enableflag = 0;
-		kgsl_sharedmem_writel(&rb->device->memstore,
-			KGSL_DEVICE_MEMSTORE_OFFSET(ts_cmp_enable),
-			enableflag);
-		wmb();
+		unsigned int context_id;
+		kgsl_sharedmem_readl(&device->memstore,
+				&context_id,
+				KGSL_MEMSTORE_OFFSET(KGSL_MEMSTORE_GLOBAL,
+					current_context));
+		if (context_id < KGSL_MEMSTORE_MAX) {
+			kgsl_sharedmem_writel(&rb->device->memstore,
+					KGSL_MEMSTORE_OFFSET(context_id,
+						ts_cmp_enable), 0);
+			device->last_expired_ctxt_id = context_id;
+			wmb();
+		}
 		KGSL_CMD_WARN(rb->device, "ringbuffer rb interrupt\n");
 	}
 
@@ -1777,11 +1788,193 @@ static void a2xx_irq_control(struct adreno_device *adreno_dev, int state)
 	wmb();
 }
 
+static void a2xx_rb_init(struct adreno_device *adreno_dev,
+			struct adreno_ringbuffer *rb)
+{
+	unsigned int *cmds, cmds_gpu;
+
+	/* ME_INIT */
+	cmds = adreno_ringbuffer_allocspace(rb, 19);
+	cmds_gpu = rb->buffer_desc.gpuaddr + sizeof(uint)*(rb->wptr-19);
+
+	GSL_RB_WRITE(cmds, cmds_gpu, cp_type3_packet(CP_ME_INIT, 18));
+	/* All fields present (bits 9:0) */
+	GSL_RB_WRITE(cmds, cmds_gpu, 0x000003ff);
+	/* Disable/Enable Real-Time Stream processing (present but ignored) */
+	GSL_RB_WRITE(cmds, cmds_gpu, 0x00000000);
+	/* Enable (2D <-> 3D) implicit synchronization (present but ignored) */
+	GSL_RB_WRITE(cmds, cmds_gpu, 0x00000000);
+
+	GSL_RB_WRITE(cmds, cmds_gpu,
+		SUBBLOCK_OFFSET(REG_RB_SURFACE_INFO));
+	GSL_RB_WRITE(cmds, cmds_gpu,
+		SUBBLOCK_OFFSET(REG_PA_SC_WINDOW_OFFSET));
+	GSL_RB_WRITE(cmds, cmds_gpu,
+		SUBBLOCK_OFFSET(REG_VGT_MAX_VTX_INDX));
+	GSL_RB_WRITE(cmds, cmds_gpu,
+		SUBBLOCK_OFFSET(REG_SQ_PROGRAM_CNTL));
+	GSL_RB_WRITE(cmds, cmds_gpu,
+		SUBBLOCK_OFFSET(REG_RB_DEPTHCONTROL));
+	GSL_RB_WRITE(cmds, cmds_gpu,
+		SUBBLOCK_OFFSET(REG_PA_SU_POINT_SIZE));
+	GSL_RB_WRITE(cmds, cmds_gpu,
+		SUBBLOCK_OFFSET(REG_PA_SC_LINE_CNTL));
+	GSL_RB_WRITE(cmds, cmds_gpu,
+		SUBBLOCK_OFFSET(REG_PA_SU_POLY_OFFSET_FRONT_SCALE));
+
+	/* Instruction memory size: */
+	GSL_RB_WRITE(cmds, cmds_gpu,
+		(adreno_encode_istore_size(adreno_dev)
+		| adreno_dev->pix_shader_start));
+	/* Maximum Contexts */
+	GSL_RB_WRITE(cmds, cmds_gpu, 0x00000001);
+	/* Write Confirm Interval and The CP will wait the
+	* wait_interval * 16 clocks between polling  */
+	GSL_RB_WRITE(cmds, cmds_gpu, 0x00000000);
+
+	/* NQ and External Memory Swap */
+	GSL_RB_WRITE(cmds, cmds_gpu, 0x00000000);
+	/* Protected mode error checking */
+	GSL_RB_WRITE(cmds, cmds_gpu, GSL_RB_PROTECTED_MODE_CONTROL);
+	/* Disable header dumping and Header dump address */
+	GSL_RB_WRITE(cmds, cmds_gpu, 0x00000000);
+	/* Header dump size */
+	GSL_RB_WRITE(cmds, cmds_gpu, 0x00000000);
+
+	adreno_ringbuffer_submit(rb);
+}
+
+static unsigned int a2xx_busy_cycles(struct adreno_device *adreno_dev)
+{
+	struct kgsl_device *device = &adreno_dev->dev;
+	unsigned int reg, val;
+
+	/* Freeze the counter */
+	adreno_regwrite(device, REG_CP_PERFMON_CNTL,
+		REG_PERF_MODE_CNT | REG_PERF_STATE_FREEZE);
+
+	/* Get the value */
+	adreno_regread(device, REG_RBBM_PERFCOUNTER1_LO, &val);
+
+	/* Reset the counter */
+	adreno_regwrite(device, REG_CP_PERFMON_CNTL,
+		REG_PERF_MODE_CNT | REG_PERF_STATE_RESET);
+
+	/* Re-Enable the performance monitors */
+	adreno_regread(device, REG_RBBM_PM_OVERRIDE2, &reg);
+	adreno_regwrite(device, REG_RBBM_PM_OVERRIDE2, (reg | 0x40));
+	adreno_regwrite(device, REG_RBBM_PERFCOUNTER1_SELECT, 0x1);
+	adreno_regwrite(device, REG_CP_PERFMON_CNTL,
+		REG_PERF_MODE_CNT | REG_PERF_STATE_ENABLE);
+
+	return val;
+}
+
+static void a2xx_gmeminit(struct adreno_device *adreno_dev)
+{
+	struct kgsl_device *device = &adreno_dev->dev;
+	union reg_rb_edram_info rb_edram_info;
+	unsigned int gmem_size;
+	unsigned int edram_value = 0;
+
+	/* make sure edram range is aligned to size */
+	BUG_ON(adreno_dev->gmemspace.gpu_base &
+				(adreno_dev->gmemspace.sizebytes - 1));
+
+	/* get edram_size value equivalent */
+	gmem_size = (adreno_dev->gmemspace.sizebytes >> 14);
+	while (gmem_size >>= 1)
+		edram_value++;
+
+	rb_edram_info.val = 0;
+
+	rb_edram_info.f.edram_size = edram_value;
+	rb_edram_info.f.edram_mapping_mode = 0; /* EDRAM_MAP_UPPER */
+
+	/* must be aligned to size */
+	rb_edram_info.f.edram_range = (adreno_dev->gmemspace.gpu_base >> 14);
+
+	adreno_regwrite(device, REG_RB_EDRAM_INFO, rb_edram_info.val);
+}
+
+static void a2xx_start(struct adreno_device *adreno_dev)
+{
+	struct kgsl_device *device = &adreno_dev->dev;
+
+	/*
+	 * We need to make sure all blocks are powered up and clocked
+	 * before issuing a soft reset.  The overrides will then be
+	 * turned off (set to 0)
+	 */
+	adreno_regwrite(device, REG_RBBM_PM_OVERRIDE1, 0xfffffffe);
+	adreno_regwrite(device, REG_RBBM_PM_OVERRIDE2, 0xffffffff);
+
+	/*
+	 * Only reset CP block if all blocks have previously been
+	 * reset
+	 */
+	if (!(device->flags & KGSL_FLAGS_SOFT_RESET) ||
+		!adreno_is_a22x(adreno_dev)) {
+		adreno_regwrite(device, REG_RBBM_SOFT_RESET,
+			0xFFFFFFFF);
+		device->flags |= KGSL_FLAGS_SOFT_RESET;
+	} else {
+		adreno_regwrite(device, REG_RBBM_SOFT_RESET,
+			0x00000001);
+	}
+	/*
+	 * The core is in an indeterminate state until the reset
+	 * completes after 30ms.
+	 */
+	msleep(30);
+
+	adreno_regwrite(device, REG_RBBM_SOFT_RESET, 0x00000000);
+
+	if (adreno_is_a225(adreno_dev)) {
+		/* Enable large instruction store for A225 */
+		adreno_regwrite(device, REG_SQ_FLOW_CONTROL,
+			0x18000000);
+	}
+
+	adreno_regwrite(device, REG_RBBM_CNTL, 0x00004442);
+
+	adreno_regwrite(device, REG_SQ_VS_PROGRAM, 0x00000000);
+	adreno_regwrite(device, REG_SQ_PS_PROGRAM, 0x00000000);
+
+	if (cpu_is_msm8960() || cpu_is_msm8930())
+		adreno_regwrite(device, REG_RBBM_PM_OVERRIDE1, 0x200);
+	else
+		adreno_regwrite(device, REG_RBBM_PM_OVERRIDE1, 0);
+
+	if (!adreno_is_a22x(adreno_dev))
+		adreno_regwrite(device, REG_RBBM_PM_OVERRIDE2, 0);
+	else
+		adreno_regwrite(device, REG_RBBM_PM_OVERRIDE2, 0x80);
+
+	adreno_regwrite(device, REG_RBBM_DEBUG, 0x00080000);
+
+	/* Make sure interrupts are disabled */
+	adreno_regwrite(device, REG_RBBM_INT_CNTL, 0);
+	adreno_regwrite(device, REG_CP_INT_CNTL, 0);
+	adreno_regwrite(device, REG_SQ_INT_CNTL, 0);
+
+	if (adreno_is_a22x(adreno_dev))
+		adreno_dev->gmemspace.sizebytes = SZ_512K;
+	else
+		adreno_dev->gmemspace.sizebytes = SZ_256K;
+
+	a2xx_gmeminit(adreno_dev);
+}
+
 /* Defined in adreno_a2xx_snapshot.c */
 void *a2xx_snapshot(struct adreno_device *adreno_dev, void *snapshot,
 	int *remain, int hang);
 
 struct adreno_gpudev adreno_a2xx_gpudev = {
+	.reg_rbbm_status = REG_RBBM_STATUS,
+	.reg_cp_pfp_ucode_addr = REG_CP_PFP_UCODE_ADDR,
+	.reg_cp_pfp_ucode_data = REG_CP_PFP_UCODE_DATA,
+
 	.ctxt_create = a2xx_drawctxt_create,
 	.ctxt_save = a2xx_drawctxt_save,
 	.ctxt_restore = a2xx_drawctxt_restore,
@@ -1789,4 +1982,7 @@ struct adreno_gpudev adreno_a2xx_gpudev = {
 	.irq_handler = a2xx_irq_handler,
 	.irq_control = a2xx_irq_control,
 	.snapshot = a2xx_snapshot,
+	.rb_init = a2xx_rb_init,
+	.busy_cycles = a2xx_busy_cycles,
+	.start = a2xx_start,
 };

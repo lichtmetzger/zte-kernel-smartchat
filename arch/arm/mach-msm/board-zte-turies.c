@@ -1540,22 +1540,39 @@ static struct msm_i2c_platform_data msm_gsbi1_qup_i2c_pdata = {
 };
 
 #ifdef CONFIG_ARCH_MSM7X27A
+/* old values
 //ruanmeisi for liuhaitao 20111220, HVGA(480x320)
-//#define MSM_PMEM_MDP_SIZE       0x1DD1000 //stock p752d
-//#define MSM_PMEM_MDP_SIZE       (13*1024*1024) //codeaurora spec, 13M
-#define MSM_PMEM_MDP_SIZE       0x1400000	// 20M
-//#define MSM_PMEM_ADSP_SIZE      0x1000000 //stock p752d
-//#define MSM_PMEM_ADSP_SIZE      0xB71000 //codeaurora spec, 11.5M
-#define MSM_PMEM_ADSP_SIZE      0xC00000	// 12M
+#define MSM_PMEM_MDP_SIZE       0x1DD1000 //stock p752d
+#define MSM_PMEM_MDP_SIZE       (13*1024*1024) //codeaurora spec, 13M
+#define MSM7x25A_MSM_PMEM_MDP_SIZE	0x1000000
+#define MSM_PMEM_ADSP_SIZE      0x1000000 //stock p752d
+#define MSM_PMEM_ADSP_SIZE      0xB71000 //codeaurora spec, 11.5M
+#define MSM7x25A_MSM_PMEM_ADSP_SIZE      0xB91000
+
 
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
 //ruanmeisi for liuhaitao 20111220, HVGA(480x320)
-//#define MSM_FB_SIZE		0x260000 //stock p752d
-//#define MSM_FB_SIZE		(1*1024*1024) //codeaurora spec, 1M
-#define MSM_FB_SIZE		0x500000 //5M
+#define MSM_FB_SIZE		0x260000 //stock p752d
+#define MSM_FB_SIZE		(1*1024*1024) //codeaurora spec, 1M
 #else
-//#define MSM_FB_SIZE		0x195000 //stock
+#define MSM_FB_SIZE		0x195000 //stock*/
+
+//values from Konstat (atlas40)
+#define MSM_PMEM_MDP_SIZE       0x2300000
+#define MSM7x25A_MSM_PMEM_MDP_SIZE       0x1500000
+
+#define MSM_PMEM_ADSP_SIZE      0x1000000
+#define MSM7x25A_MSM_PMEM_ADSP_SIZE      0xB91000
+
+
+#ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
+#define MSM_FB_SIZE		0x46512C
+#define MSM7x25A_MSM_FB_SIZE	0xE1000
+#else
 #define MSM_FB_SIZE		0x196000
+#define MSM7x25A_MSM_FB_SIZE	0x96000
+
+
 #endif
 
 #endif
@@ -3832,7 +3849,12 @@ static void __init msm_msm7x2x_allocate_memory_regions(void)
 
 
 
-	size = fb_size ? : MSM_FB_SIZE;
+	if (machine_is_msm7625a_surf() || machine_is_msm7625a_ffa())
+		fb_size = MSM7x25A_MSM_FB_SIZE;
+	else
+		fb_size = MSM_FB_SIZE;
+
+	size = fb_size;
 	addr = alloc_bootmem_align(size, 0x1000);
 	msm_fb_resources[0].start = __pa(addr);
 	msm_fb_resources[0].end = msm_fb_resources[0].start + size - 1;
@@ -3884,6 +3906,15 @@ static struct memtype_reserve msm7x27a_reserve_table[] __initdata = {
 
 static void __init size_pmem_devices(void)
 {
+
+	if (machine_is_msm7625a_surf() || machine_is_msm7625a_ffa()) {
+		pmem_mdp_size = MSM7x25A_MSM_PMEM_MDP_SIZE;
+		pmem_adsp_size = MSM7x25A_MSM_PMEM_ADSP_SIZE;
+	} else {
+		pmem_mdp_size = MSM_PMEM_MDP_SIZE;
+		pmem_adsp_size = MSM_PMEM_ADSP_SIZE;
+	}
+
 #ifdef CONFIG_ANDROID_PMEM
 	android_pmem_adsp_pdata.size = pmem_adsp_size;
 	android_pmem_pdata.size = pmem_mdp_size;

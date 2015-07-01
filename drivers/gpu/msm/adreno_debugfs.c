@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2008-2011, Code Aurora Forum. All rights reserved.
+/* Copyright (c) 2002,2008-2012, Code Aurora Forum. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,7 +23,8 @@
 #include "a2xx_reg.h"
 
 unsigned int kgsl_cff_dump_enable;
-int kgsl_pm_regs_enabled;
+int adreno_pm_regs_enabled;
+int adreno_pm_ib_enabled;
 
 static struct dentry *pm_d_debugfs;
 
@@ -46,19 +47,36 @@ DEFINE_SIMPLE_ATTRIBUTE(pm_dump_fops,
 
 static int pm_regs_enabled_set(void *data, u64 val)
 {
-	kgsl_pm_regs_enabled = val ? 1 : 0;
+	adreno_pm_regs_enabled = val ? 1 : 0;
 	return 0;
 }
 
 static int pm_regs_enabled_get(void *data, u64 *val)
 {
-	*val = kgsl_pm_regs_enabled;
+	*val = adreno_pm_regs_enabled;
 	return 0;
 }
+
+static int pm_ib_enabled_set(void *data, u64 val)
+{
+	adreno_pm_ib_enabled = val ? 1 : 0;
+	return 0;
+}
+
+static int pm_ib_enabled_get(void *data, u64 *val)
+{
+	*val = adreno_pm_ib_enabled;
+	return 0;
+}
+
 
 DEFINE_SIMPLE_ATTRIBUTE(pm_regs_enabled_fops,
 			pm_regs_enabled_get,
 			pm_regs_enabled_set, "%llu\n");
+
+DEFINE_SIMPLE_ATTRIBUTE(pm_ib_enabled_fops,
+			pm_ib_enabled_get,
+			pm_ib_enabled_set, "%llu\n");
 
 
 static int kgsl_cff_dump_enable_set(void *data, u64 val)
@@ -104,7 +122,7 @@ static int kgsl_hex_dump(const char *prefix, int c, uint8_t *data,
 	ss = snprintf(linebuf, sizeof(linebuf), prefix, c);
 	hex_dump_to_buffer(data, linec, rowc, 4, linebuf+ss,
 		sizeof(linebuf)-ss, 0);
-	strncat(linebuf, "\n", sizeof(linebuf));
+	strlcat(linebuf, "\n", sizeof(linebuf));
 	linebuf[sizeof(linebuf)-1] = 0;
 	ss = strlen(linebuf);
 	if (copy_to_user(buff, linebuf, ss+1))
@@ -143,7 +161,8 @@ static ssize_t kgsl_istore_read(
 		return 0;
 
 	adreno_dev = ADRENO_DEVICE(device);
-	count = adreno_dev->istore_size * ADRENO_ISTORE_WORDS;
+	count = adreno_dev->istore_size * adreno_dev->instruction_size;
+
 	remaining = count;
 	for (i = 0; i < count; i += rowc) {
 		unsigned int vals[rowc];
@@ -359,4 +378,6 @@ void adreno_debugfs_init(struct kgsl_device *device)
 			    &pm_dump_fops);
 	debugfs_create_file("regs_enabled", 0644, pm_d_debugfs, device,
 			    &pm_regs_enabled_fops);
+	debugfs_create_file("ib_enabled", 0644, pm_d_debugfs, device,
+				    &pm_ib_enabled_fops);
 }

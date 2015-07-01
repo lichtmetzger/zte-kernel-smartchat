@@ -33,11 +33,17 @@
 
 int adreno_debugfs_init(struct kgsl_device *device);
 
-extern int kgsl_pm_regs_enabled;
+extern int adreno_pm_regs_enabled;
+extern int adreno_pm_ib_enabled;
 
-static inline int kgsl_pmregs_enabled(void)
+static inline int is_adreno_pm_regs_enabled(void)
 {
-	return kgsl_pm_regs_enabled;
+	return adreno_pm_regs_enabled;
+}
+
+static inline int is_adreno_pm_ib_enabled(void)
+{
+	return adreno_pm_ib_enabled;
 }
 
 #else

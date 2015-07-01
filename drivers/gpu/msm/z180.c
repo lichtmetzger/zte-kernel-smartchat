@@ -101,6 +101,7 @@ enum z180_cmdwindow_type {
 static int z180_start(struct kgsl_device *device, unsigned int init_ram);
 static int z180_stop(struct kgsl_device *device);
 static int z180_wait(struct kgsl_device *device,
+				struct kgsl_context *context,
 				unsigned int timestamp,
 				unsigned int msecs);
 static void z180_regread(struct kgsl_device *device,
@@ -332,13 +333,15 @@ static void addcmd(struct z180_ringbuffer *rb, unsigned int timestamp,
 	*p++ = ADDR_VGV3_LAST << 24;
 }
 
-static void z180_cmdstream_start(struct kgsl_device *device)
+static void z180_cmdstream_start(struct kgsl_device *device, int init_ram)
 {
 	struct z180_device *z180_dev = Z180_DEVICE(device);
 	unsigned int cmd = VGV3_NEXTCMD_JUMP << VGV3_NEXTCMD_NEXTCMD_FSHIFT;
 
-	z180_dev->timestamp = 0;
-	z180_dev->current_timestamp = 0;
+	if (init_ram) {
+		z180_dev->timestamp = 0;
+		z180_dev->current_timestamp = 0;
+	}
 
 	addmarker(&z180_dev->ringbuffer, 0);
 
@@ -376,8 +379,8 @@ static int z180_idle(struct kgsl_device *device, unsigned int timeout)
 
 	if (timestamp_cmp(z180_dev->current_timestamp,
 		z180_dev->timestamp) > 0)
-		status = z180_wait(device, z180_dev->current_timestamp,
-					timeout);
+		status = z180_wait(device, NULL,
+				z180_dev->current_timestamp, timeout);
 
 	if (status)
 		KGSL_DRV_ERR(device, "z180_waittimestamp() timed out\n");
@@ -406,7 +409,7 @@ z180_cmdstream_issueibcmds(struct kgsl_device_private *dev_priv,
 	unsigned int sizedwords;
 
 	if (device->state & KGSL_STATE_HUNG) {
-		return -EINVAL;
+		result = -EINVAL;
 		goto error;
 	}
 	if (numibs != 1) {
@@ -576,7 +579,7 @@ static int z180_start(struct kgsl_device *device, unsigned int init_ram)
 	if (status)
 		goto error_clk_off;
 
-	z180_cmdstream_start(device);
+	z180_cmdstream_start(device, init_ram);
 
 	mod_timer(&device->idle_timer, jiffies + FIRST_TIMEOUT);
 	kgsl_pwrctrl_irq(device, KGSL_PWRFLAGS_ON);
@@ -806,14 +809,16 @@ static void z180_cmdwindow_write(struct kgsl_device *device,
 }
 
 static unsigned int z180_readtimestamp(struct kgsl_device *device,
-			     enum kgsl_timestamp_type type)
+		struct kgsl_context *context, enum kgsl_timestamp_type type)
 {
 	struct z180_device *z180_dev = Z180_DEVICE(device);
+	(void)context;
 	/* get current EOP timestamp */
 	return z180_dev->timestamp;
 }
 
 static int z180_waittimestamp(struct kgsl_device *device,
+				struct kgsl_context *context,
 				unsigned int timestamp,
 				unsigned int msecs)
 {
@@ -824,13 +829,14 @@ static int z180_waittimestamp(struct kgsl_device *device,
 		msecs = 10 * MSEC_PER_SEC;
 
 	mutex_unlock(&device->mutex);
-	status = z180_wait(device, timestamp, msecs);
+	status = z180_wait(device, context, timestamp, msecs);
 	mutex_lock(&device->mutex);
 
 	return status;
 }
 
 static int z180_wait(struct kgsl_device *device,
+				struct kgsl_context *context,
 				unsigned int timestamp,
 				unsigned int msecs)
 {
@@ -839,7 +845,7 @@ static int z180_wait(struct kgsl_device *device,
 
 	timeout = wait_io_event_interruptible_timeout(
 			device->wait_queue,
-			kgsl_check_timestamp(device, timestamp),
+			kgsl_check_timestamp(device, context, timestamp),
 			msecs_to_jiffies(msecs));
 
 	if (timeout > 0)

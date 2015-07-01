@@ -55,21 +55,18 @@
 #define ADRENO_DEFAULT_PWRSCALE_POLICY  NULL
 #endif
 
-/*
- * constants for the size of shader instructions
- */
-#define ADRENO_ISTORE_BYTES 12
-#define ADRENO_ISTORE_WORDS 3
-#define ADRENO_ISTORE_START 0x5000
+#define ADRENO_ISTORE_START 0x5000 /* Istore offset */
 
 #define ADRENO_NUM_CTX_SWITCH_ALLOWED_BEFORE_DRAW	50
 
 enum adreno_gpurev {
 	ADRENO_REV_UNKNOWN = 0,
 	ADRENO_REV_A200 = 200,
+	ADRENO_REV_A203 = 203,
 	ADRENO_REV_A205 = 205,
 	ADRENO_REV_A220 = 220,
 	ADRENO_REV_A225 = 225,
+	ADRENO_REV_A320 = 320,
 };
 
 struct adreno_gpudev;
@@ -80,7 +77,6 @@ struct adreno_device {
 	enum adreno_gpurev gpurev;
 	struct kgsl_memregion gmemspace;
 	struct adreno_context *drawctxt_active;
-	wait_queue_head_t ib1_wq;
 	const char *pfp_fwfile;
 	unsigned int *pfp_fw;
 	size_t pfp_fw_size;
@@ -93,12 +89,22 @@ struct adreno_device {
 	unsigned int wait_timeout;
 	unsigned int istore_size;
 	unsigned int pix_shader_start;
+	unsigned int instruction_size;
 	unsigned int ib_check_level;
 };
 
 struct adreno_gpudev {
 	/* keeps track of when we need to execute the draw workaround code */
 	int ctx_switches_since_last_draw;
+	/*
+	 * These registers are in a different location on A3XX,  so define
+	 * them in the structure and use them as variables.
+	 */
+	unsigned int reg_rbbm_status;
+	unsigned int reg_cp_pfp_ucode_data;
+	unsigned int reg_cp_pfp_ucode_addr;
+
+	/* GPU specific function hooks */
 	int (*ctxt_create)(struct adreno_device *, struct adreno_context *);
 	void (*ctxt_save)(struct adreno_device *, struct adreno_context *);
 	void (*ctxt_restore)(struct adreno_device *, struct adreno_context *);
@@ -106,15 +112,23 @@ struct adreno_gpudev {
 	irqreturn_t (*irq_handler)(struct adreno_device *);
 	void (*irq_control)(struct adreno_device *, int);
 	void * (*snapshot)(struct adreno_device *, void *, int *, int);
+	void (*rb_init)(struct adreno_device *, struct adreno_ringbuffer *);
+	void (*start)(struct adreno_device *);
+	unsigned int (*busy_cycles)(struct adreno_device *);
 };
 
 extern struct adreno_gpudev adreno_a2xx_gpudev;
+extern struct adreno_gpudev adreno_a3xx_gpudev;
 
 /* A2XX register sets defined in adreno_a2xx.c */
 extern const unsigned int a200_registers[];
 extern const unsigned int a220_registers[];
 extern const unsigned int a200_registers_count;
 extern const unsigned int a220_registers_count;
+
+/* A3XX register set defined in adreno_a3xx.c */
+extern const unsigned int a3xx_registers[];
+extern const unsigned int a3xx_registers_count;
 
 int adreno_idle(struct kgsl_device *device, unsigned int timeout);
 void adreno_regread(struct kgsl_device *device, unsigned int offsetwords,
@@ -138,15 +152,19 @@ static inline int adreno_is_a200(struct adreno_device *adreno_dev)
 	return (adreno_dev->gpurev == ADRENO_REV_A200);
 }
 
+static inline int adreno_is_a203(struct adreno_device *adreno_dev)
+{
+	return (adreno_dev->gpurev == ADRENO_REV_A203);
+}
+
 static inline int adreno_is_a205(struct adreno_device *adreno_dev)
 {
-	return (adreno_dev->gpurev == ADRENO_REV_A200);
+	return (adreno_dev->gpurev == ADRENO_REV_A205);
 }
 
 static inline int adreno_is_a20x(struct adreno_device *adreno_dev)
 {
-	return (adreno_dev->gpurev  == ADRENO_REV_A200 ||
-		adreno_dev->gpurev == ADRENO_REV_A205);
+	return (adreno_dev->gpurev <= 209);
 }
 
 static inline int adreno_is_a220(struct adreno_device *adreno_dev)
@@ -167,7 +185,12 @@ static inline int adreno_is_a22x(struct adreno_device *adreno_dev)
 
 static inline int adreno_is_a2xx(struct adreno_device *adreno_dev)
 {
-	return (adreno_dev->gpurev <= ADRENO_REV_A225);
+	return (adreno_dev->gpurev <= 299);
+}
+
+static inline int adreno_is_a3xx(struct adreno_device *adreno_dev)
+{
+	return (adreno_dev->gpurev >= 300);
 }
 
 /**
