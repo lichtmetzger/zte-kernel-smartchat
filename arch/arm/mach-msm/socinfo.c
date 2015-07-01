@@ -633,8 +633,8 @@ void *setup_dummy_socinfo(void)
 	if (machine_is_msm8960_rumi3() || machine_is_msm8960_sim() ||
 	    machine_is_msm8960_cdp())
 		dummy_socinfo.id = 87;
-	else if (machine_is_msm8625_rumi3())
-		dummy_socinfo.id = 127;
+	//else if (machine_is_msm8625_rumi3())
+	//	dummy_socinfo.id = 127;
 	return (void *) &dummy_socinfo;
 }
 
