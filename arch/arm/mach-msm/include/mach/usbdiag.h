@@ -38,7 +38,7 @@ struct diag_request {
 };
 
 struct usb_diag_ch {
-	char *name;
+	const char *name;
 	struct list_head list;
 	void (*notify)(void *priv, unsigned event, struct diag_request *d_req);
 	void *priv;
