@@ -145,14 +145,6 @@ struct scsi_cmnd;
 #define VERIFY_16	      0x8f
 #define WRITE_SAME_16	      0x93
 #define SERVICE_ACTION_IN     0x9e
-// ruanemisi_20100712 cdrom   auto switch
-#define SC_SWITCH_MODE  0x85 //USB_HML_20100602
-#define SC_SWITCH_MODE_MAC_OS   0xa1 //SCSI Command for swithing on Mac OS
-//end
-// xingbeilei_20110801 start_stop usb debug
-#define SC_START_STOP_USB_DEBUG  0x66
-
-
 /* values for service action in */
 #define	SAI_READ_CAPACITY_16  0x10
 #define SAI_GET_LBA_STATUS    0x12
@@ -443,6 +435,10 @@ static inline int scsi_is_wlun(unsigned int lun)
 				      * recover the link. Transport class will
 				      * retry or fail IO */
 #define DID_TRANSPORT_FAILFAST	0x0f /* Transport class fastfailed the io */
+#define DID_TARGET_FAILURE 0x10 /* Permanent target failure, do not retry on
+				 * other paths */
+#define DID_NEXUS_FAILURE 0x11  /* Permanent nexus failure, retry on other
+				 * paths might yield different results */
 #define DRIVER_OK       0x00	/* Driver status                           */
 
 /*
@@ -472,6 +468,7 @@ static inline int scsi_is_wlun(unsigned int lun)
 #define TIMEOUT_ERROR   0x2007
 #define SCSI_RETURN_NOT_HANDLED   0x2008
 #define FAST_IO_FAIL	0x2009
+#define TARGET_ERROR    0x200A
 
 /*
  * Midlevel queue return values.
