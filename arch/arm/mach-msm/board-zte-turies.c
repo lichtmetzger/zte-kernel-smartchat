@@ -3603,7 +3603,6 @@ static struct platform_device *surf_ffa_devices[] __initdata = {
 #endif
 	&android_pmem_device,
 	&android_pmem_adsp_device,
-	&usb_gadget_fserial_device,
 	&android_pmem_audio_device,
   #ifdef CONFIG_BT 
 	//&msm_bt_power_device,
