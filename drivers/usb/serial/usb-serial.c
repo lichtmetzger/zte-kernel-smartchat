@@ -496,18 +496,18 @@ static const struct file_operations serial_proc_fops = {
 	.release	= single_release,
 };
 
-static int serial_tiocmget(struct tty_struct *tty, struct file *file)
+static int serial_tiocmget(struct tty_struct *tty)
 {
 	struct usb_serial_port *port = tty->driver_data;
 
 	dbg("%s - port %d", __func__, port->number);
 
 	if (port->serial->type->tiocmget)
-		return port->serial->type->tiocmget(tty, file);
+		return port->serial->type->tiocmget(tty);
 	return -EINVAL;
 }
 
-static int serial_tiocmset(struct tty_struct *tty, struct file *file,
+static int serial_tiocmset(struct tty_struct *tty,
 			    unsigned int set, unsigned int clear)
 {
 	struct usb_serial_port *port = tty->driver_data;
@@ -515,7 +515,7 @@ static int serial_tiocmset(struct tty_struct *tty, struct file *file,
 	dbg("%s - port %d", __func__, port->number);
 
 	if (port->serial->type->tiocmset)
-		return port->serial->type->tiocmset(tty, file, set, clear);
+		return port->serial->type->tiocmset(tty, set, clear);
 	return -EINVAL;
 }
 

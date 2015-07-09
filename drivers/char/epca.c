@@ -1982,7 +1982,7 @@ static int info_ioctl(struct tty_struct *tty, struct file *file,
 	return 0;
 }
 
-static int pc_tiocmget(struct tty_struct *tty, struct file *file)
+static int pc_tiocmget(struct tty_struct *tty)
 {
 	struct channel *ch = tty->driver_data;
 	struct board_chan __iomem *bc;
@@ -2015,7 +2015,7 @@ static int pc_tiocmget(struct tty_struct *tty, struct file *file)
 	return mflag;
 }
 
-static int pc_tiocmset(struct tty_struct *tty, struct file *file,
+static int pc_tiocmset(struct tty_struct *tty,
 		       unsigned int set, unsigned int clear)
 {
 	struct channel *ch = tty->driver_data;
@@ -2074,14 +2074,14 @@ static int pc_ioctl(struct tty_struct *tty, struct file *file,
 		return -EINVAL;
 	switch (cmd) {
 	case TIOCMODG:
-		mflag = pc_tiocmget(tty, file);
+		mflag = pc_tiocmget(tty);
 		if (put_user(mflag, (unsigned long __user *)argp))
 			return -EFAULT;
 		break;
 	case TIOCMODS:
 		if (get_user(mstat, (unsigned __user *)argp))
 			return -EFAULT;
-		return pc_tiocmset(tty, file, mstat, ~mstat);
+		return pc_tiocmset(tty, mstat, ~mstat);
 	case TIOCSDTR:
 		spin_lock_irqsave(&epca_lock, flags);
 		ch->omodem |= ch->m_dtr;

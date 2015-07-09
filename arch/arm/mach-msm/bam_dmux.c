@@ -87,10 +87,11 @@ static uint32_t bam_dmux_write_cpy_bytes;
 
 struct bam_ch_info {
 	uint32_t status;
-	void (*receive_cb)(void *, struct sk_buff *);
-	void (*write_done)(void *, struct sk_buff *);
+	void (*notify)(void *, int, unsigned long);
 	void *priv;
 	spinlock_t lock;
+	struct platform_device *pdev;
+	char name[BAM_DMUX_CH_NAME_MAX_LEN];
 };
 
 struct tx_pkt_info {
@@ -188,6 +189,7 @@ static void bam_mux_process_data(struct sk_buff *rx_skb)
 {
 	unsigned long flags;
 	struct bam_mux_hdr *rx_hdr;
+	unsigned long event_data;
 
 	rx_hdr = (struct bam_mux_hdr *)rx_skb->data;
 
@@ -195,10 +197,13 @@ static void bam_mux_process_data(struct sk_buff *rx_skb)
 	rx_skb->tail = rx_skb->data + rx_hdr->pkt_len;
 	rx_skb->len = rx_hdr->pkt_len;
 
+	event_data = (unsigned long)(rx_skb);
+
 	spin_lock_irqsave(&bam_ch[rx_hdr->ch_id].lock, flags);
-	if (bam_ch[rx_hdr->ch_id].receive_cb)
-		bam_ch[rx_hdr->ch_id].receive_cb(bam_ch[rx_hdr->ch_id].priv,
-							rx_skb);
+	if (bam_ch[rx_hdr->ch_id].notify)
+		bam_ch[rx_hdr->ch_id].notify(
+			bam_ch[rx_hdr->ch_id].priv, BAM_DMUX_RECEIVE,
+							event_data);
 	else
 		dev_kfree_skb_any(rx_skb);
 	spin_unlock_irqrestore(&bam_ch[rx_hdr->ch_id].lock, flags);
@@ -212,6 +217,7 @@ static void handle_bam_mux_cmd(struct work_struct *work)
 	struct bam_mux_hdr *rx_hdr;
 	struct rx_pkt_info *info;
 	struct sk_buff *rx_skb;
+	int ret;
 
 	info = container_of(work, struct rx_pkt_info, work);
 	rx_skb = info->skb;
@@ -243,6 +249,10 @@ static void handle_bam_mux_cmd(struct work_struct *work)
 		spin_unlock_irqrestore(&bam_ch[rx_hdr->ch_id].lock, flags);
 		dev_kfree_skb_any(rx_skb);
 		queue_rx();
+		ret = platform_device_add(bam_ch[rx_hdr->ch_id].pdev);
+		if (ret)
+			pr_err("%s: platform_device_add() error: %d\n",
+					__func__, ret);
 		break;
 	case BAM_MUX_HDR_CMD_CLOSE:
 		/* probably should drop pending write */
@@ -251,6 +261,11 @@ static void handle_bam_mux_cmd(struct work_struct *work)
 		spin_unlock_irqrestore(&bam_ch[rx_hdr->ch_id].lock, flags);
 		dev_kfree_skb_any(rx_skb);
 		queue_rx();
+		platform_device_unregister(bam_ch[rx_hdr->ch_id].pdev);
+		bam_ch[rx_hdr->ch_id].pdev =
+			platform_device_alloc(bam_ch[rx_hdr->ch_id].name, 2);
+		if (!bam_ch[rx_hdr->ch_id].pdev)
+			pr_err("%s: platform_device_alloc failed\n", __func__);
 		break;
 	default:
 		pr_err("%s: dropping invalid hdr. magic %x reserved %d cmd %d"
@@ -302,15 +317,18 @@ static void bam_mux_write_done(struct work_struct *work)
 	struct sk_buff *skb;
 	struct bam_mux_hdr *hdr;
 	struct tx_pkt_info *info;
+	unsigned long event_data;
 
 	info = container_of(work, struct tx_pkt_info, work);
 	skb = info->skb;
 	kfree(info);
 	hdr = (struct bam_mux_hdr *)skb->data;
 	DBG_INC_WRITE_CNT(skb->data_len);
-	if (bam_ch[hdr->ch_id].write_done)
-		bam_ch[hdr->ch_id].write_done(
-			bam_ch[hdr->ch_id].priv, skb);
+	event_data = (unsigned long)(skb);
+	if (bam_ch[hdr->ch_id].notify)
+		bam_ch[hdr->ch_id].notify(
+			bam_ch[hdr->ch_id].priv, BAM_DMUX_WRITE_DONE,
+							event_data);
 	else
 		dev_kfree_skb_any(skb);
 }
@@ -400,8 +418,7 @@ int msm_bam_dmux_write(uint32_t id, struct sk_buff *skb)
 }
 
 int msm_bam_dmux_open(uint32_t id, void *priv,
-			void (*receive_cb)(void *, struct sk_buff *),
-			void (*write_done)(void *, struct sk_buff *))
+			void (*notify)(void *, int, unsigned long))
 {
 	struct bam_mux_hdr *hdr;
 	unsigned long flags;
@@ -411,6 +428,8 @@ int msm_bam_dmux_open(uint32_t id, void *priv,
 	if (!bam_mux_initialized)
 		return -ENODEV;
 	if (id >= BAM_DMUX_NUM_CHANNELS)
+		return -EINVAL;
+	if (notify == NULL)
 		return -EINVAL;
 
 	hdr = kmalloc(sizeof(struct bam_mux_hdr), GFP_KERNEL);
@@ -433,8 +452,7 @@ int msm_bam_dmux_open(uint32_t id, void *priv,
 		goto open_done;
 	}
 
-	bam_ch[id].receive_cb = receive_cb;
-	bam_ch[id].write_done = write_done;
+	bam_ch[id].notify = notify;
 	bam_ch[id].priv = priv;
 	bam_ch[id].status |= BAM_CH_LOCAL_OPEN;
 	spin_unlock_irqrestore(&bam_ch[id].lock, flags);
@@ -466,8 +484,7 @@ int msm_bam_dmux_close(uint32_t id)
 		return -ENODEV;
 	spin_lock_irqsave(&bam_ch[id].lock, flags);
 
-	bam_ch[id].write_done = NULL;
-	bam_ch[id].receive_cb = NULL;
+	bam_ch[id].notify = NULL;
 	bam_ch[id].priv = NULL;
 	bam_ch[id].status &= ~BAM_CH_LOCAL_OPEN;
 	spin_unlock_irqrestore(&bam_ch[id].lock, flags);
@@ -749,8 +766,19 @@ static int bam_dmux_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	for (rc = 0; rc < BAM_DMUX_NUM_CHANNELS; ++rc)
+	for (rc = 0; rc < BAM_DMUX_NUM_CHANNELS; ++rc) {
 		spin_lock_init(&bam_ch[rc].lock);
+		scnprintf(bam_ch[rc].name, BAM_DMUX_CH_NAME_MAX_LEN,
+					"bam_dmux_ch_%d", rc);
+		/* bus 2, ie a2 stream 2 */
+		bam_ch[rc].pdev = platform_device_alloc(bam_ch[rc].name, 2);
+		if (!bam_ch[rc].pdev) {
+			pr_err("%s: platform device alloc failed\n", __func__);
+			destroy_workqueue(bam_mux_rx_workqueue);
+			destroy_workqueue(bam_mux_tx_workqueue);
+			return -ENOMEM;
+		}
+	}
 
 	/* switch over to A2 power status mechanism when avaliable */
 	INIT_DELAYED_WORK(&bam_init_work, bam_init);

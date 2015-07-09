@@ -1501,7 +1501,7 @@ static int stli_setserial(struct tty_struct *tty, struct serial_struct __user *s
 
 /*****************************************************************************/
 
-static int stli_tiocmget(struct tty_struct *tty, struct file *file)
+static int stli_tiocmget(struct tty_struct *tty)
 {
 	struct stliport *portp = tty->driver_data;
 	struct stlibrd *brdp;
@@ -1524,7 +1524,7 @@ static int stli_tiocmget(struct tty_struct *tty, struct file *file)
 	return stli_mktiocm(portp->asig.sigvalue);
 }
 
-static int stli_tiocmset(struct tty_struct *tty, struct file *file,
+static int stli_tiocmset(struct tty_struct *tty,
 			 unsigned int set, unsigned int clear)
 {
 	struct stliport *portp = tty->driver_data;

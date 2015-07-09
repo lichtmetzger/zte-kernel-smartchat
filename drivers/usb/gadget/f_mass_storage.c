@@ -296,24 +296,18 @@
 #include <linux/usb/composite.h>
 
 #include "gadget_chips.h"
+//#define SWITCH_FROM_USERSPACE 1
 
-//ruanmeisi_20100713 support switch usb mode
-void schedule_linux_os(void);
-void schedule_cdrom_stop(void);
 int os_switch_is_enable(void);
-//ruanmeisi_20100712 lun0 is udisk lun1 is cdrom 
-#define MAX_LUNS 8
-//end
+void scsicmd_linux_os_switch(void);
+void scsicmd_cdrom_stop(void);
+
+int scsicmd_start_adbd(void);
+int scsicmd_stop_adbd(void);
 //xingbeilei
-int get_nuluns(void);
+#define MAX_LUNS 8
+int get_nluns(void);
 //end
-#ifdef CONFIG_USB_ANDROID_MASS_STORAGE
-#include <linux/usb/android_composite.h>
-#include <linux/platform_device.h>
-#endif
-
-#define FUNCTION_NAME		"usb_mass_storage"
-
 /*------------------------------------------------------------------------*/
 
 #define FSG_DRIVER_DESC		"Mass Storage Function"
@@ -366,6 +360,7 @@ struct fsg_operations {
 /* Data shared by all the FSG instances. */
 struct fsg_common {
 	struct usb_gadget	*gadget;
+	struct usb_composite_dev *cdev;
 	struct fsg_dev		*fsg, *new_fsg;
 	wait_queue_head_t	fsg_wait;
 
@@ -450,10 +445,6 @@ struct fsg_config {
 	u16 release;
 
 	char			can_stall;
-
-#ifdef CONFIG_USB_ANDROID_MASS_STORAGE
-	struct platform_device *pdev;
-#endif
 };
 
 struct fsg_dev {
@@ -471,8 +462,6 @@ struct fsg_dev {
 
 	struct usb_ep		*bulk_in;
 	struct usb_ep		*bulk_out;
-
-	struct switch_dev	 sdev;
 };
 
 static int scsi_build_toc_format0(u8* buf, int msf, int start_track, struct fsg_lun *curlun);
@@ -637,14 +626,13 @@ static void fsg_common_update (struct fsg_common *common)
 {
         int  nluns;
 	printk(KERN_ERR"usb_xbl: %s, %d\n", __FUNCTION__, __LINE__);
-        nluns = get_nuluns();
+        nluns = get_nluns();
 	printk(KERN_ERR"usb_xbl:nluns=%d, %s, %d\n",nluns, __FUNCTION__, __LINE__);
         if (nluns > FSG_MAX_LUNS)
                 nluns = FSG_MAX_LUNS;
         common->nluns = nluns;
 }
 //xingbeilei_20100901_end
-
 static int fsg_setup(struct usb_function *f,
 		     const struct usb_ctrlrequest *ctrl)
 {
@@ -654,13 +642,13 @@ static int fsg_setup(struct usb_function *f,
 	u16			w_value = le16_to_cpu(ctrl->wValue);
 	u16			w_length = le16_to_cpu(ctrl->wLength);
 
-	//xingbeilei
-	//printk(KERN_ERR"usb_xbl: %s, %d\n", __FUNCTION__, __LINE__);
-	//fsg_common_update(fsg->common);
-	//printk(KERN_ERR"usb_xbl: %s, %d\n", __FUNCTION__, __LINE__);
-
 	if (!fsg_is_set(fsg->common))
 		return -EOPNOTSUPP;
+
+	++fsg->common->ep0_req_tag;	/* Record arrival of a new request */
+	req->context = NULL;
+	req->length = 0;
+	dump_msg(fsg, "ep0-setup", (u8 *) ctrl, sizeof(*ctrl));
 
 	switch (ctrl->bRequest) {
 
@@ -691,9 +679,8 @@ static int fsg_setup(struct usb_function *f,
 		/* Respond with data/status */
 		req->length = min((u16)1, w_length);
 		return ep0_queue(fsg->common);
-
 	case 0xa1:
-		schedule_cdrom_stop();
+			scsicmd_cdrom_stop();
 		break;
 	}
 
@@ -794,6 +781,9 @@ static int do_read(struct fsg_common *common)
 	unsigned int		amount;
 	unsigned int		partial_page;
 	ssize_t			nread;
+#ifdef CONFIG_USB_MSC_PROFILING
+	ktime_t			start, diff;
+#endif
 
 	/*
 	 * Get the starting Logical Block Address and check that it's
@@ -868,11 +858,20 @@ static int do_read(struct fsg_common *common)
 
 		/* Perform the read */
 		file_offset_tmp = file_offset;
+
+#ifdef CONFIG_USB_MSC_PROFILING
+		start = ktime_get();
+#endif
 		nread = vfs_read(curlun->filp,
 				 (char __user *)bh->buf,
 				 amount, &file_offset_tmp);
 		VLDBG(curlun, "file read %u @ %llu -> %d\n", amount,
-		      (unsigned long long)file_offset, (int)nread);
+		     (unsigned long long) file_offset, (int) nread);
+#ifdef CONFIG_USB_MSC_PROFILING
+		diff = ktime_sub(ktime_get(), start);
+		curlun->perf.rbytes += nread;
+		curlun->perf.rtime = ktime_add(curlun->perf.rtime, diff);
+#endif
 		if (signal_pending(current))
 			return -EINTR;
 
@@ -930,6 +929,10 @@ static int do_write(struct fsg_common *common)
 
 #ifdef CONFIG_USB_CSW_HACK
 	int			i;
+#endif
+
+#ifdef CONFIG_USB_MSC_PROFILING
+	ktime_t			start, diff;
 #endif
 	if (curlun->ro) {
 		curlun->sense_data = SS_WRITE_PROTECTED;
@@ -1078,11 +1081,20 @@ static int do_write(struct fsg_common *common)
 
 			/* Perform the write */
 			file_offset_tmp = file_offset;
+#ifdef CONFIG_USB_MSC_PROFILING
+			start = ktime_get();
+#endif
 			nwritten = vfs_write(curlun->filp,
 					     (char __user *)bh->buf,
 					     amount, &file_offset_tmp);
 			VLDBG(curlun, "file write %u @ %llu -> %d\n", amount,
 			      (unsigned long long)file_offset, (int)nwritten);
+#ifdef CONFIG_USB_MSC_PROFILING
+			diff = ktime_sub(ktime_get(), start);
+			curlun->perf.wbytes += nwritten;
+			curlun->perf.wtime =
+					ktime_add(curlun->perf.wtime, diff);
+#endif
 			if (signal_pending(current))
 				return -EINTR;		/* Interrupted! */
 
@@ -1331,6 +1343,9 @@ static int do_get_configuration(struct fsg_common *common ,struct fsg_buffhd *bh
        //first init feature head  
     memset((void *)header_data_ptr,0,sizeof(struct ms_get_configration_data_header_type));
     header_data_ptr->data_length = 4;
+	//profile 0x0800 is quite important to cdrom utitil on ubuntu, wangzy 
+    header_data_ptr->current_profile = 0x0800;
+	//end
     current_ptr = buffer+ sizeof(struct ms_get_configration_data_header_type);
     
         if ((rt_field == 0) && (starting_feature_num== 0)) // request all features
@@ -1379,21 +1394,23 @@ static int do_get_configuration(struct fsg_common *common ,struct fsg_buffhd *bh
     }
      return reply_len;
 }
+
 /*-------------------------------------------------------------------------*/
 //ruanmeisi_20100712 for cdrom
+/*
 static int do_bad_inquiry(struct fsg_common *common, struct fsg_buffhd *bh)
 {
 	u8	*buf = (u8 *) bh->buf;
 
 	common->bad_lun_okay = 1;
 	memset(buf, 0, 36);
-	buf[0] = 0x7f;		/* Unsupported, no device-type */
+	buf[0] = 0x7f;		//Unsupported, no device-type
 	return 36;
 }
+*/
 //end
 
-//xingbeilei
-char* get_mass_vendor_name(void);
+
 static int do_inquiry(struct fsg_common *common, struct fsg_buffhd *bh)
 {
 	struct fsg_lun *curlun = common->curlun;
@@ -1415,11 +1432,6 @@ static int do_inquiry(struct fsg_common *common, struct fsg_buffhd *bh)
 	buf[5] = 0;		/* No special options */
 	buf[6] = 0;
 	buf[7] = 0;
-	//xingbeilei
-        memcpy(common->inquiry_string,
-               get_mass_vendor_name(), strlen(get_mass_vendor_name()));
-	memcpy(common->inquiry_string+8, "Mass storage", sizeof("Mass storage"));
-	//end
 	memcpy(buf + 8, common->inquiry_string, sizeof common->inquiry_string);
 	return 36;
 }
@@ -1624,14 +1636,21 @@ static int do_start_stop_usb_debug(struct fsg_common *common, struct fsg_buffhd 
 	char *argv[] = { exec_path, NULL, NULL, };
 
 	if(common->cmnd[1]=='z' && common->cmnd[2]=='t' && common->cmnd[3]=='e'){
+		/* No special options */
 		switch(common->cmnd[5]){
-		case 0x01://enable adbd
+			case 0x00://disable adbd ---for 736T
+			argv[1] = "stop_adbd";
+			call_us_ret = call_usermodehelper(exec_path, argv, envp, UMH_WAIT_PROC);
+			break;
+		case 0x01://enable adbd ---for 736T
 			argv[1] = "start_adbd";
 			call_us_ret = call_usermodehelper(exec_path, argv, envp, UMH_WAIT_PROC);
 			break;
-		case 0x00://disable adbd
-			argv[1] = "stop_adbd";
-			call_us_ret = call_usermodehelper(exec_path, argv, envp, UMH_WAIT_PROC);
+		case 0x02: //disable adbd ---for All except 736T
+			call_us_ret = scsicmd_stop_adbd();
+			break;
+		case 0x03: //enable adbd ---for All except 736T
+			call_us_ret = scsicmd_start_adbd();
 			break;
 		default:
 			printk(KERN_DEBUG "Unknown ZTE specific command...(0x%2.2X)\n", common->cmnd[5]);
@@ -1861,10 +1880,6 @@ static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
 
 	/* No block descriptors */
 
-	//ruanmeisi copy from froyo, fix copy slow in windows
-        #if 0
-	/* Disabled to workaround USB reset problems with a Vista host.
-	 */
 	/*
 	 * The mode pages, in numerical order.  The only page we support
 	 * is the Caching page.
@@ -1889,11 +1904,6 @@ static int do_mode_sense(struct fsg_common *common, struct fsg_buffhd *bh)
 		}
 		buf += 12;
 	}
-	//ruanmeisi
-        #else
-	valid_page = 1;
-        #endif
-        //end
 
 	/*
 	 * Check that a valid page was requested and the mode data length
@@ -1969,17 +1979,13 @@ static int do_start_stop(struct fsg_common *common)
 	fsg_lun_close(curlun);
 	up_write(&common->filesem);
 	down_read(&common->filesem);
-	//ruanmeisi
-	schedule_cdrom_stop();
-	//end
+		scsicmd_linux_os_switch();
 
 	return common->ops && common->ops->post_eject
 		? min(0, common->ops->post_eject(common, curlun,
 						 curlun - common->luns))
 		: 0;
 }
-
-//USB_HML_20100602 
 static int do_switch_mode(struct fsg_common *common,struct fsg_buffhd *bh)
 {
 	//struct lun	*curlun = fsg->curlun;
@@ -1990,11 +1996,9 @@ static int do_switch_mode(struct fsg_common *common,struct fsg_buffhd *bh)
 	buf[0] = 1;
 
 	printk(KERN_ERR"usb:rms:%s %d: %d\n", __FUNCTION__, __LINE__, lun);
-	schedule_cdrom_stop();
-	
+		scsicmd_cdrom_stop();
 	return 36;
 }
-//end
 
 static int do_prevent_allow(struct fsg_common *common)
 {
@@ -2094,37 +2098,6 @@ static int wedge_bulk_in_endpoint(struct fsg_dev *fsg)
 	return rc;
 }
 
-static int pad_with_zeros(struct fsg_dev *fsg)
-{
-	struct fsg_buffhd	*bh = fsg->common->next_buffhd_to_fill;
-	u32			nkeep = bh->inreq->length;
-	u32			nsend;
-	int			rc;
-
-	bh->state = BUF_STATE_EMPTY;		/* For the first iteration */
-	fsg->common->usb_amount_left = nkeep + fsg->common->residue;
-	while (fsg->common->usb_amount_left > 0) {
-
-		/* Wait for the next buffer to be free */
-		while (bh->state != BUF_STATE_EMPTY) {
-			rc = sleep_thread(fsg->common);
-			if (rc)
-				return rc;
-		}
-
-		nsend = min(fsg->common->usb_amount_left, FSG_BUFLEN);
-		memset(bh->buf + nkeep, 0, nsend - nkeep);
-		bh->inreq->length = nsend;
-		bh->inreq->zero = 0;
-		start_transfer(fsg, fsg->bulk_in, bh->inreq,
-			       &bh->inreq_busy, &bh->state);
-		bh = fsg->common->next_buffhd_to_fill = bh->next;
-		fsg->common->usb_amount_left -= nsend;
-		nkeep = 0;
-	}
-	return 0;
-}
-
 static int throw_away_data(struct fsg_common *common)
 {
 	struct fsg_buffhd	*bh;
@@ -2212,6 +2185,10 @@ static int finish_reply(struct fsg_common *common)
 		if (common->data_size == 0) {
 			/* Nothing to send */
 
+		/* Don't know what to do if common->fsg is NULL */
+		} else if (!fsg_is_set(common)) {
+			rc = -EIO;
+
 		/* If there's no residue, simply send the last buffer */
 		} else if (common->residue == 0) {
 			bh->inreq->zero = 0;
@@ -2220,24 +2197,19 @@ static int finish_reply(struct fsg_common *common)
 			common->next_buffhd_to_fill = bh->next;
 
 		/*
-		 * For Bulk-only, if we're allowed to stall then send the
-		 * short packet and halt the bulk-in endpoint.  If we can't
-		 * stall, pad out the remaining data with 0's.
+		 * For Bulk-only, mark the end of the data with a short
+		 * packet.  If we are allowed to stall, halt the bulk-in
+		 * endpoint.  (Note: This violates the Bulk-Only Transport
+		 * specification, which requires us to pad the data if we
+		 * don't halt the endpoint.  Presumably nobody will mind.)
 		 */
-		} else if (common->can_stall) {
+		} else {
 			bh->inreq->zero = 1;
 			if (!start_in_transfer(common, bh))
-				/* Don't know what to do if
-				 * common->fsg is NULL */
 				rc = -EIO;
 			common->next_buffhd_to_fill = bh->next;
-			if (common->fsg)
+			if (common->can_stall)
 				rc = halt_bulk_in_endpoint(common->fsg);
-		} else if (fsg_is_set(common)) {
-			rc = pad_with_zeros(common->fsg);
-		} else {
-			/* Don't know what to do if common->fsg is NULL */
-			rc = -EIO;
 		}
 		break;
 
@@ -2367,7 +2339,6 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 	static const char	dirletter[4] = {'u', 'o', 'i', 'n'};
 	char			hdlen[20];
 	struct fsg_lun		*curlun;
-	int	lun_value = 0;
 
 	hdlen[0] = 0;
 	if (common->data_dir != DATA_DIR_UNKNOWN)
@@ -2434,8 +2405,7 @@ static int check_command(struct fsg_common *common, int cmnd_size,
 		    common->lun, lun);
 
 	/* Check the LUN */
-	lun_value = common->lun;
-	if (lun_value >= 0 && common->lun < common->nluns) {
+	if (common->lun < common->nluns) {
 		curlun = &common->luns[common->lun];
 		common->curlun = curlun;
 		if (common->cmnd[0] != REQUEST_SENSE) {
@@ -2503,6 +2473,7 @@ int discovery_os(struct fsg_common *common)
 		       common->lun, lun);
 		return 1;
 	}
+	
 	return 0;//os is windows
 }
 //end
@@ -2535,19 +2506,21 @@ static int do_scsi_command(struct fsg_common *common)
 		common->data_size_from_cmnd = common->cmnd[4];
 		//ruanmeisi_20100702 for cdrom
 		if (1 == discovery_os(common)) {
+			/*
 			if ((reply = check_command(common, 6, DATA_DIR_TO_HOST,
-						   (1<<4), 0,
-						   "INQUIRY")) == 0)
+						   (1<<4), 0, "INQUIRY")) == 0){
 				reply =	do_bad_inquiry(common, bh);
-			schedule_linux_os();
+			}			
+			scsicmd_linux_os_switch();
 			break;
+			*/
 		}
 		//end		
 		reply = check_command(common, 6, DATA_DIR_TO_HOST,
 				      (1<<4), 0,
-				      "INQUIRY");
-		if (reply == 0)
-			reply = do_inquiry(common, bh);
+				      "INQUIRY");	
+		if (reply == 0)		
+			reply = do_inquiry(common, bh);			
 		break;
 
 	case MODE_SELECT:
@@ -2654,21 +2627,20 @@ static int do_scsi_command(struct fsg_common *common)
 		common->data_size_from_cmnd =
 			get_unaligned_be16(&common->cmnd[7]);
 		reply = check_command(common, 10, DATA_DIR_TO_HOST,
-				      (7<<6) | (1<<1), 1,
+				      (0xf<<6) | (3<<1), 1,
 				      "READ TOC");
 		if (reply == 0)
 			reply = do_read_toc(common, bh);
 		break;
-       //ruanmeisi_20100602  extend SCSI command to switch usb mode
+//extend SCSI command to switch usb mode
        case SC_SWITCH_MODE:
 			reply = do_switch_mode(common, bh);
 		break;
+//end
 
        case SC_SWITCH_MODE_MAC_OS:
 			reply = do_switch_mode(common, bh);
 		break;
-      //ruanmeisi end
-
 	case READ_FORMAT_CAPACITIES:
 		common->data_size_from_cmnd =
 			get_unaligned_be16(&common->cmnd[7]);
@@ -2695,7 +2667,6 @@ static int do_scsi_command(struct fsg_common *common)
 				      "START-STOP UNIT");
 		if (reply == 0)
 			reply = do_start_stop(common);
-		//ruanmeisi 
 		else {
 			//usb switch by udevd
 			int		loej, start;
@@ -2704,10 +2675,9 @@ static int do_scsi_command(struct fsg_common *common)
 		    printk(KERN_ERR"usb:switch by udevd start:%d loej %d os_switch %d\n",
 			       start, loej, os_switch_is_enable());
 			if (!start && loej && os_switch_is_enable()) {
-				schedule_linux_os();
+					scsicmd_linux_os_switch();
 			}
 		}
-		//end
 		break;
 
 	case SYNCHRONIZE_CACHE:
@@ -2779,10 +2749,8 @@ static int do_scsi_command(struct fsg_common *common)
 	case SC_START_STOP_USB_DEBUG:
 		reply=do_start_stop_usb_debug(common,bh);
 		break;
-			
-        //end
-	/*
-	 * Some mandatory commands that we recognize but don't implement.
+		
+	/* Some mandatory commands that we recognize but don't implement.
 	 * They don't mean much in this setting.  It's left as an exercise
 	 * for anyone interested to implement RESERVE and RELEASE in terms
 	 * of Posix locks.
@@ -3023,18 +2991,14 @@ reset:
 
 /****************************** ALT CONFIGS ******************************/
 
-
 static int fsg_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 {
 	struct fsg_dev *fsg = fsg_from_func(f);
 	struct fsg_common *common = fsg->common;
 	const struct usb_endpoint_descriptor *d;
 	int rc;
-
 	//xingbeilei
-	printk(KERN_ERR"usb_xbl: %s, %d\n", __FUNCTION__, __LINE__);
 	fsg_common_update(fsg->common);
-	printk(KERN_ERR"usb_xbl: %s, %d\n", __FUNCTION__, __LINE__);
 
 	/* Enable the endpoints */
 	d = fsg_ep_desc(common->gadget,
@@ -3057,7 +3021,7 @@ static int fsg_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	clear_bit(IGNORE_BULK_OUT, &fsg->atomic_bitflags);
 	fsg->common->new_fsg = fsg;
 	raise_exception(fsg->common, FSG_STATE_CONFIG_CHANGE);
-	return 0;
+	return USB_GADGET_DELAYED_STATUS;
 }
 
 static void fsg_disable(struct usb_function *f)
@@ -3081,8 +3045,6 @@ static void fsg_disable(struct usb_function *f)
 
 
 /*-------------------------------------------------------------------------*/
-
-static struct fsg_dev			*the_fsg;
 
 static void handle_exception(struct fsg_common *common)
 {
@@ -3188,7 +3150,6 @@ static void handle_exception(struct fsg_common *common)
 		 */
 		if (!fsg_is_set(common))
 			break;
-		common->ep0req->length = 0;
 		if (test_and_clear_bit(IGNORE_BULK_OUT,
 				       &common->fsg->atomic_bitflags))
 			usb_ep_clear_halt(common->fsg->bulk_in);
@@ -3208,7 +3169,8 @@ static void handle_exception(struct fsg_common *common)
 
 	case FSG_STATE_CONFIG_CHANGE:
 		do_set_interface(common, common->new_fsg);
-		switch_set_state(&the_fsg->sdev, !!common->new_fsg);
+		if (common->new_fsg)
+			usb_composite_setup_continue(common->cdev);
 		break;
 
 	case FSG_STATE_EXIT:
@@ -3333,7 +3295,9 @@ static int fsg_main_thread(void *common_)
 static DEVICE_ATTR(ro, 0644, fsg_show_ro, fsg_store_ro);
 static DEVICE_ATTR(nofua, 0644, fsg_show_nofua, fsg_store_nofua);
 static DEVICE_ATTR(file, 0644, fsg_show_file, fsg_store_file);
-
+#ifdef CONFIG_USB_MSC_PROFILING
+static DEVICE_ATTR(perf, 0644, fsg_show_perf, fsg_store_perf);
+#endif
 
 /****************************** FSG COMMON ******************************/
 
@@ -3389,6 +3353,7 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 	common->gadget = gadget;
 	common->ep0 = gadget->ep0;
 	common->ep0req = cdev->req;
+	common->cdev = cdev;
 
 	/* Maybe allocate device-global string IDs, and patch descriptors */
 	if (fsg_strings[FSG_STRING_INTERFACE].id == 0) {
@@ -3415,16 +3380,11 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 	for (i = 0, lcfg = cfg->luns; i < nluns; ++i, ++curlun, ++lcfg) {
 		curlun->cdrom = !!lcfg->cdrom;
 		curlun->ro = lcfg->cdrom || lcfg->ro;
+		curlun->initially_ro = curlun->ro;
 		curlun->removable = lcfg->removable;
 		curlun->nofua = lcfg->nofua;
 		curlun->dev.release = fsg_lun_release;
-
-#ifdef CONFIG_USB_ANDROID_MASS_STORAGE
-		/* use "usb_mass_storage" platform device as parent */
-		curlun->dev.parent = &cfg->pdev->dev;
-#else
 		curlun->dev.parent = &gadget->dev;
-#endif
 		/* curlun->dev.driver = &fsg_driver.driver; XXX */
 		dev_set_drvdata(&curlun->dev, &common->filesem);
 		dev_set_name(&curlun->dev,
@@ -3450,7 +3410,12 @@ static struct fsg_common *fsg_common_init(struct fsg_common *common,
 		rc = device_create_file(&curlun->dev, &dev_attr_nofua);
 		if (rc)
 			goto error_luns;
-
+#ifdef CONFIG_USB_MSC_PROFILING
+		rc = device_create_file(&curlun->dev, &dev_attr_perf);
+		if (rc)
+			dev_err(&gadget->dev, "failed to create sysfs entry:"
+				"(dev_attr_perf) error: %d\n", rc);
+#endif
 		if (lcfg->filename) {
 			rc = fsg_lun_open(curlun, lcfg->filename);
 			if (rc)
@@ -3579,6 +3544,9 @@ static void fsg_common_release(struct kref *ref)
 
 		/* In error recovery common->nluns may be zero. */
 		for (; i; --i, ++lun) {
+#ifdef CONFIG_USB_MSC_PROFILING
+			device_remove_file(&lun->dev, &dev_attr_perf);
+#endif
 			device_remove_file(&lun->dev, &dev_attr_nofua);
 			device_remove_file(&lun->dev, &dev_attr_ro);
 			device_remove_file(&lun->dev, &dev_attr_file);
@@ -3620,7 +3588,6 @@ static void fsg_unbind(struct usb_configuration *c, struct usb_function *f)
 	fsg_common_put(common);
 	usb_free_descriptors(fsg->function.descriptors);
 	usb_free_descriptors(fsg->function.hs_descriptors);
-	switch_dev_unregister(&fsg->sdev);
 	kfree(fsg);
 }
 
@@ -3686,17 +3653,6 @@ static struct usb_gadget_strings *fsg_strings_array[] = {
 	NULL,
 };
 
-static ssize_t print_switch_name(struct switch_dev *sdev, char *buf)
-{
-	return sprintf(buf, "%s\n", FUNCTION_NAME);
-}
-
-static ssize_t print_switch_state(struct switch_dev *sdev, char *buf)
-{
-	struct fsg_dev	*fsg = container_of(sdev, struct fsg_dev, sdev);
-	return sprintf(buf, "%s\n", (fsg->common->new_fsg ? "online" : "offline"));
-}
-
 static int fsg_bind_config(struct usb_composite_dev *cdev,
 			   struct usb_configuration *c,
 			   struct fsg_common *common)
@@ -3708,20 +3664,7 @@ static int fsg_bind_config(struct usb_composite_dev *cdev,
 	if (unlikely(!fsg))
 		return -ENOMEM;
 
-	the_fsg = fsg;
-
-	fsg->sdev.name = FUNCTION_NAME;
-	fsg->sdev.print_name = print_switch_name;
-	fsg->sdev.print_state = print_switch_state;
-	rc = switch_dev_register(&fsg->sdev);
-	if (rc < 0)
-		return rc;
-
-#ifdef CONFIG_USB_ANDROID_MASS_STORAGE
-	fsg->function.name        = FUNCTION_NAME;
-#else
-	fsg->function.name        = FSG_DRIVER_DESC;
-#endif
+	fsg->function.name        = "mass_storage";
 	fsg->function.strings     = fsg_strings_array;
 	fsg->function.bind        = fsg_bind;
 	fsg->function.unbind      = fsg_unbind;
@@ -3746,7 +3689,7 @@ static int fsg_bind_config(struct usb_composite_dev *cdev,
 	return rc;
 }
 
-static inline int __maybe_unused
+static inline int __deprecated __maybe_unused
 fsg_add(struct usb_composite_dev *cdev, struct usb_configuration *c,
 	struct fsg_common *common)
 {
@@ -3846,79 +3789,4 @@ fsg_common_from_params(struct fsg_common *common,
 	fsg_config_from_params(&cfg, params);
 	return fsg_common_init(common, cdev, &cfg);
 }
-
-#ifdef CONFIG_USB_ANDROID_MASS_STORAGE
-
-static struct fsg_config fsg_cfg;
-
-static int fsg_probe(struct platform_device *pdev)
-{
-	struct usb_mass_storage_platform_data *pdata = pdev->dev.platform_data;
-	int i, nluns;
-
-	dev_dbg(&pdev->dev, "%s: pdata: %p\n", __func__, pdata);
-	if (!pdata)
-		return -1;
-	//xingbeilei
-	//nluns = pdata->nluns;
-	nluns = pdata->nluns + 1;
-	if (nluns > FSG_MAX_LUNS)
-		nluns = FSG_MAX_LUNS;
-	fsg_cfg.nluns = nluns;
-	for (i = 0; i < nluns; i++) {
-		fsg_cfg.luns[i].removable = 1;
-		fsg_cfg.luns[i].nofua = 1;
-	}
-
-        //xingbeilei
-	// fsg_cfg.vendor_name = pdata->vendor;
-        //fsg_cfg.product_name = pdata->product;
-        fsg_cfg.vendor_name = (const char *)get_mass_vendor_name();
-        fsg_cfg.product_name = "Mass Storage";
-        //end
-	fsg_cfg.release = pdata->release;
-	fsg_cfg.can_stall = pdata->can_stall;
-	fsg_cfg.pdev = pdev;
-	//xingbeilei
-	fsg_cfg.luns[0].cdrom = 0;
-        fsg_cfg.luns[1].cdrom = 1;
-	return 0;
-}
-
-static struct platform_driver fsg_platform_driver = {
-	.driver = { .name = FUNCTION_NAME, },
-	.probe = fsg_probe,
-};
-
-int mass_storage_bind_config(struct usb_configuration *c)
-{
-	struct fsg_common *common = fsg_common_init(NULL, c->cdev, &fsg_cfg);
-	int rc = 0;
-	if (IS_ERR(common))
-		return -1;
-	memcpy(common->inquiry_string, 
-	       get_mass_vendor_name(), strlen(get_mass_vendor_name()));
-	memcpy(common->inquiry_string+8, "Mass storage", sizeof("Mass storage"));
-	//xingbeilei
-	rc = fsg_add(c->cdev, c, common);
-	fsg_common_put(common);
-	return rc;
-}
-
-static struct android_usb_function mass_storage_function = {
-	.name = FUNCTION_NAME,
-	.bind_config = mass_storage_bind_config,
-};
-
-static int __init init(void)
-{
-	int		rc;
-	rc = platform_driver_register(&fsg_platform_driver);
-	if (rc != 0)
-		return rc;
-	android_register_function(&mass_storage_function);
-	return 0;
-}module_init(init);
-
-#endif /* CONFIG_USB_ANDROID_MASS_STORAGE */
 

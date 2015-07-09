@@ -3581,8 +3581,7 @@ rs_break(struct tty_struct *tty, int break_state)
 }
 
 static int
-rs_tiocmset(struct tty_struct *tty, struct file *file,
-		unsigned int set, unsigned int clear)
+rs_tiocmset(struct tty_struct *tty, unsigned int set, unsigned int clear)
 {
 	struct e100_serial *info = (struct e100_serial *)tty->driver_data;
 	unsigned long flags;
@@ -3614,7 +3613,7 @@ rs_tiocmset(struct tty_struct *tty, struct file *file,
 }
 
 static int
-rs_tiocmget(struct tty_struct *tty, struct file *file)
+rs_tiocmget(struct tty_struct *tty)
 {
 	struct e100_serial *info = (struct e100_serial *)tty->driver_data;
 	unsigned int result;

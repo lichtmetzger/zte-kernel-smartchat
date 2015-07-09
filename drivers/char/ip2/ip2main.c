@@ -181,8 +181,8 @@ static void ip2_unthrottle(PTTY);
 static void ip2_stop(PTTY);
 static void ip2_start(PTTY);
 static void ip2_hangup(PTTY);
-static int  ip2_tiocmget(struct tty_struct *tty, struct file *file);
-static int  ip2_tiocmset(struct tty_struct *tty, struct file *file,
+static int  ip2_tiocmget(struct tty_struct *tty);
+static int  ip2_tiocmset(struct tty_struct *tty,
 			 unsigned int set, unsigned int clear);
 static int ip2_get_icount(struct tty_struct *tty,
 		struct serial_icounter_struct *icount);
@@ -2038,7 +2038,7 @@ ip2_stop ( PTTY tty )
 /* Device Ioctl Section                                                       */
 /******************************************************************************/
 
-static int ip2_tiocmget(struct tty_struct *tty, struct file *file)
+static int ip2_tiocmget(struct tty_struct *tty)
 {
 	i2ChanStrPtr pCh = DevTable[tty->index];
 #ifdef	ENABLE_DSSNOW
@@ -2085,7 +2085,7 @@ static int ip2_tiocmget(struct tty_struct *tty, struct file *file)
 	      | ((pCh->dataSetIn  & I2_CTS) ? TIOCM_CTS : 0);
 }
 
-static int ip2_tiocmset(struct tty_struct *tty, struct file *file,
+static int ip2_tiocmset(struct tty_struct *tty,
 			unsigned int set, unsigned int clear)
 {
 	i2ChanStrPtr pCh = DevTable[tty->index];

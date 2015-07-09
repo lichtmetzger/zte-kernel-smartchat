@@ -1345,7 +1345,7 @@ isdn_tty_get_lsr_info(modem_info * info, uint __user * value)
 
 
 static int
-isdn_tty_tiocmget(struct tty_struct *tty, struct file *file)
+isdn_tty_tiocmget(struct tty_struct *tty)
 {
 	modem_info *info = (modem_info *) tty->driver_data;
 	u_char control, status;
@@ -1372,7 +1372,7 @@ isdn_tty_tiocmget(struct tty_struct *tty, struct file *file)
 }
 
 static int
-isdn_tty_tiocmset(struct tty_struct *tty, struct file *file,
+isdn_tty_tiocmset(struct tty_struct *tty,
 		unsigned int set, unsigned int clear)
 {
 	modem_info *info = (modem_info *) tty->driver_data;

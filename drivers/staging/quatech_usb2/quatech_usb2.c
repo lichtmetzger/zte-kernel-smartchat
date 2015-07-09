@@ -1078,7 +1078,7 @@ static void qt2_set_termios(struct tty_struct *tty,
 	}
 }
 
-static int qt2_tiocmget(struct tty_struct *tty, struct file *file)
+static int qt2_tiocmget(struct tty_struct *tty)
 {
 	struct usb_serial_port *port = tty->driver_data;
 	struct usb_serial *serial = port->serial;
@@ -1121,7 +1121,7 @@ static int qt2_tiocmget(struct tty_struct *tty, struct file *file)
 	}
 }
 
-static int qt2_tiocmset(struct tty_struct *tty, struct file *file,
+static int qt2_tiocmset(struct tty_struct *tty,
 		       unsigned int set, unsigned int clear)
 {
 	struct usb_serial_port *port = tty->driver_data;

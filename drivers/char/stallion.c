@@ -1094,7 +1094,7 @@ static int stl_setserial(struct tty_struct *tty, struct serial_struct __user *sp
 
 /*****************************************************************************/
 
-static int stl_tiocmget(struct tty_struct *tty, struct file *file)
+static int stl_tiocmget(struct tty_struct *tty)
 {
 	struct stlport	*portp;
 
@@ -1107,7 +1107,7 @@ static int stl_tiocmget(struct tty_struct *tty, struct file *file)
 	return stl_getsignals(portp);
 }
 
-static int stl_tiocmset(struct tty_struct *tty, struct file *file,
+static int stl_tiocmset(struct tty_struct *tty,
 			unsigned int set, unsigned int clear)
 {
 	struct stlport	*portp;

@@ -395,7 +395,7 @@ static int set_control_lines(struct ipw_tty *tty, unsigned int set,
 	return 0;
 }
 
-static int ipw_tiocmget(struct tty_struct *linux_tty, struct file *file)
+static int ipw_tiocmget(struct tty_struct *linux_tty)
 {
 	struct ipw_tty *tty = linux_tty->driver_data;
 	/* FIXME: Exactly how is the tty object locked here .. */
@@ -410,7 +410,7 @@ static int ipw_tiocmget(struct tty_struct *linux_tty, struct file *file)
 }
 
 static int
-ipw_tiocmset(struct tty_struct *linux_tty, struct file *file,
+ipw_tiocmset(struct tty_struct *linux_tty,
 	     unsigned int set, unsigned int clear)
 {
 	struct ipw_tty *tty = linux_tty->driver_data;

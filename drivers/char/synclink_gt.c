@@ -512,9 +512,9 @@ static int  tx_abort(struct slgt_info *info);
 static int  rx_enable(struct slgt_info *info, int enable);
 static int  modem_input_wait(struct slgt_info *info,int arg);
 static int  wait_mgsl_event(struct slgt_info *info, int __user *mask_ptr);
-static int  tiocmget(struct tty_struct *tty, struct file *file);
-static int  tiocmset(struct tty_struct *tty, struct file *file,
-		     unsigned int set, unsigned int clear);
+static int  tiocmget(struct tty_struct *tty);
+static int  tiocmset(struct tty_struct *tty,
+				unsigned int set, unsigned int clear);
 static int set_break(struct tty_struct *tty, int break_state);
 static int  get_interface(struct slgt_info *info, int __user *if_mode);
 static int  set_interface(struct slgt_info *info, int if_mode);
@@ -3195,7 +3195,7 @@ static int modem_input_wait(struct slgt_info *info,int arg)
 /*
  *  return state of serial control and status signals
  */
-static int tiocmget(struct tty_struct *tty, struct file *file)
+static int tiocmget(struct tty_struct *tty)
 {
 	struct slgt_info *info = tty->driver_data;
 	unsigned int result;
@@ -3223,7 +3223,7 @@ static int tiocmget(struct tty_struct *tty, struct file *file)
  *		TIOCMSET = set/clear signal values
  * 	value	bit mask for command
  */
-static int tiocmset(struct tty_struct *tty, struct file *file,
+static int tiocmset(struct tty_struct *tty,
 		    unsigned int set, unsigned int clear)
 {
 	struct slgt_info *info = tty->driver_data;

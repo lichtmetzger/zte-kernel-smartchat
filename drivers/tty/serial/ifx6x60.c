@@ -244,7 +244,7 @@ static void ifx_spi_timeout(unsigned long arg)
  *	Map the signal state into Linux modem flags and report the value
  *	in Linux terms
  */
-static int ifx_spi_tiocmget(struct tty_struct *tty, struct file *filp)
+static int ifx_spi_tiocmget(struct tty_struct *tty)
 {
 	unsigned int value;
 	struct ifx_spi_device *ifx_dev = tty->driver_data;
@@ -262,7 +262,6 @@ static int ifx_spi_tiocmget(struct tty_struct *tty, struct file *filp)
 /**
  *	ifx_spi_tiocmset	-	set modem bits
  *	@tty: the tty structure
- *	@filp: file handle issuing the request
  *	@set: bits to set
  *	@clear: bits to clear
  *
@@ -271,7 +270,7 @@ static int ifx_spi_tiocmget(struct tty_struct *tty, struct file *filp)
  *
  *	FIXME: do we need to kick the tranfers when we do this ?
  */
-static int ifx_spi_tiocmset(struct tty_struct *tty, struct file *filp,
+static int ifx_spi_tiocmset(struct tty_struct *tty,
 			    unsigned int set, unsigned int clear)
 {
 	struct ifx_spi_device *ifx_dev = tty->driver_data;
