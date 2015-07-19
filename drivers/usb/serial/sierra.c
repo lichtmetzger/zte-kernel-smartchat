@@ -392,7 +392,7 @@ static void sierra_set_termios(struct tty_struct *tty,
 	sierra_send_setup(port);
 }
 
-static int sierra_tiocmget(struct tty_struct *tty)
+static int sierra_tiocmget(struct tty_struct *tty, struct file *file)
 {
 	struct usb_serial_port *port = tty->driver_data;
 	unsigned int value;

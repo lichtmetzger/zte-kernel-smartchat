@@ -1982,7 +1982,7 @@ static int info_ioctl(struct tty_struct *tty, struct file *file,
 	return 0;
 }
 
-static int pc_tiocmget(struct tty_struct *tty)
+static int pc_tiocmget(struct tty_struct *tty, struct file *file)
 {
 	struct channel *ch = tty->driver_data;
 	struct board_chan __iomem *bc;
@@ -2074,7 +2074,7 @@ static int pc_ioctl(struct tty_struct *tty, struct file *file,
 		return -EINVAL;
 	switch (cmd) {
 	case TIOCMODG:
-		mflag = pc_tiocmget(tty);
+		mflag = pc_tiocmget(tty, file);
 		if (put_user(mflag, (unsigned long __user *)argp))
 			return -EFAULT;
 		break;

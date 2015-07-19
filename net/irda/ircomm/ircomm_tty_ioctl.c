@@ -189,12 +189,12 @@ void ircomm_tty_set_termios(struct tty_struct *tty,
 }
 
 /*
- * Function ircomm_tty_tiocmget (tty)
+ * Function ircomm_tty_tiocmget (tty, file)
  *
  *
  *
  */
-int ircomm_tty_tiocmget(struct tty_struct *tty)
+int ircomm_tty_tiocmget(struct tty_struct *tty, struct file *file)
 {
 	struct ircomm_tty_cb *self = (struct ircomm_tty_cb *) tty->driver_data;
 	unsigned int result;

@@ -921,7 +921,7 @@ static int uart_get_lsr_info(struct tty_struct *tty,
 	return put_user(result, value);
 }
 
-static int uart_tiocmget(struct tty_struct *tty)
+static int uart_tiocmget(struct tty_struct *tty, struct file *file)
 {
 	struct uart_state *state = tty->driver_data;
 	struct tty_port *port = &state->port;
@@ -929,8 +929,10 @@ static int uart_tiocmget(struct tty_struct *tty)
 	int result = -EIO;
 
 	mutex_lock(&port->mutex);
-	if (!(tty->flags & (1 << TTY_IO_ERROR))) {
+	if ((!file || !tty_hung_up_p(file)) &&
+	    !(tty->flags & (1 << TTY_IO_ERROR))) {
 		result = uport->mctrl;
+
 		spin_lock_irq(&uport->lock);
 		result |= uport->ops->get_mctrl(uport);
 		spin_unlock_irq(&uport->lock);
