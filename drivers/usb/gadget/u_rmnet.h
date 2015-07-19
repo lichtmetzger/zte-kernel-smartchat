@@ -14,6 +14,7 @@
 #define __U_RMNET_H
 
 #include <linux/usb/composite.h>
+#include <linux/platform_device.h>
 #include <linux/usb/cdc.h>
 #include <linux/wait.h>
 #include <linux/workqueue.h>
@@ -35,25 +36,45 @@ struct grmnet {
 	/* to usb host, aka laptop, windows pc etc. Will
 	 * be filled by usb driver of rmnet functionality
 	 */
-	int (*send_cpkt_response)(void *g, void *buf, size_t len);
+	int (*send_cpkt_response)(struct grmnet *g,
+				struct rmnet_ctrl_pkt *pkt);
 
 	/* to modem, and to be filled by driver implementing
 	 * control function
 	 */
-	int (*send_encap_cmd)(u8 port_num, void *buf, size_t len);
+	int (*send_cpkt_request)(struct grmnet *g,
+				u8 port_num,
+				struct rmnet_ctrl_pkt *pkt);
 
-	void (*notify_modem)(void *g, u8 port_num, int cbits);
-
-	void (*disconnect)(struct grmnet *g);
-	void (*connect)(struct grmnet *g);
+	void (*send_cbits_tomodem)(struct grmnet *g,
+				u8 port_num,
+				int cbits);
 };
 
-int gbam_setup(unsigned int no_bam_port, unsigned int no_bam2bam_port);
-int gbam_connect(struct grmnet *gr, u8 port_num,
-				 enum transport_type trans, u8 connection_idx);
-void gbam_disconnect(struct grmnet *gr, u8 port_num, enum transport_type trans);
+#ifdef CONFIG_USB_ANDROID_RMNET_BAM
+int gbam_setup(unsigned int count);
+int gbam_connect(struct grmnet *, u8 port_num);
+void gbam_disconnect(struct grmnet *, u8 port_num);
+#else
+static inline int
+gbam_setup(unsigned int count) { return 0; }
+static inline int
+gbam_connect(struct grmnet *, u8 port_num) { return 0; }
+static inline void
+gbam_disconnect(struct grmnet *, u8 port_num) { };
+#endif
+
+#ifdef CONFIG_USB_ANDROID_RMNET_CTRL_SMD
 int gsmd_ctrl_connect(struct grmnet *gr, int port_num);
 void gsmd_ctrl_disconnect(struct grmnet *gr, u8 port_num);
 int gsmd_ctrl_setup(unsigned int count);
+#else
+static inline int
+gsmd_ctrl_connect(struct grmnet *gr, int port_num) { return 0; }
+static inline void
+gsmd_ctrl_disconnect(struct grmnet *gr, u8 port_num) { }
+static inline int
+gsmd_ctrl_setup(unsigned int count) { return 0; }
+#endif
 
 #endif /* __U_RMNET_H*/
