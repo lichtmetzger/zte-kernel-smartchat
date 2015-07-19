@@ -47,16 +47,16 @@ enum {
  */
 #ifdef CONFIG_MSM_BAM_DMUX
 int msm_bam_dmux_open(uint32_t id, void *priv,
-		       void (*notify)(void *priv, int event_type,
-						unsigned long data));
+		       void (*receive_cb)(void *, struct sk_buff *),
+		       void (*write_done)(void *, struct sk_buff *));
 
 int msm_bam_dmux_close(uint32_t id);
 
 int msm_bam_dmux_write(uint32_t id, struct sk_buff *skb);
 #else
 int msm_bam_dmux_open(uint32_t id, void *priv,
-		       void (*notify)(void *priv, int event_type,
-						unsigned long data))
+		       void (*receive_cb)(void *, struct sk_buff *),
+		       void (*write_done)(void *, struct sk_buff *))
 {
 	return -ENODEV;
 }

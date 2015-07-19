@@ -87,7 +87,8 @@ static uint32_t bam_dmux_write_cpy_bytes;
 
 struct bam_ch_info {
 	uint32_t status;
-	void (*notify)(void *, int, unsigned long);
+	void (*receive_cb)(void *, struct sk_buff *);
+	void (*write_done)(void *, struct sk_buff *);
 	void *priv;
 	spinlock_t lock;
 };
@@ -187,7 +188,6 @@ static void bam_mux_process_data(struct sk_buff *rx_skb)
 {
 	unsigned long flags;
 	struct bam_mux_hdr *rx_hdr;
-	unsigned long event_data;
 
 	rx_hdr = (struct bam_mux_hdr *)rx_skb->data;
 
@@ -195,13 +195,10 @@ static void bam_mux_process_data(struct sk_buff *rx_skb)
 	rx_skb->tail = rx_skb->data + rx_hdr->pkt_len;
 	rx_skb->len = rx_hdr->pkt_len;
 
-	event_data = (unsigned long)(rx_skb);
-
 	spin_lock_irqsave(&bam_ch[rx_hdr->ch_id].lock, flags);
-	if (bam_ch[rx_hdr->ch_id].notify)
-		bam_ch[rx_hdr->ch_id].notify(
-			bam_ch[rx_hdr->ch_id].priv, BAM_DMUX_RECEIVE,
-							event_data);
+	if (bam_ch[rx_hdr->ch_id].receive_cb)
+		bam_ch[rx_hdr->ch_id].receive_cb(bam_ch[rx_hdr->ch_id].priv,
+							rx_skb);
 	else
 		dev_kfree_skb_any(rx_skb);
 	spin_unlock_irqrestore(&bam_ch[rx_hdr->ch_id].lock, flags);
@@ -305,18 +302,15 @@ static void bam_mux_write_done(struct work_struct *work)
 	struct sk_buff *skb;
 	struct bam_mux_hdr *hdr;
 	struct tx_pkt_info *info;
-	unsigned long event_data;
 
 	info = container_of(work, struct tx_pkt_info, work);
 	skb = info->skb;
 	kfree(info);
 	hdr = (struct bam_mux_hdr *)skb->data;
 	DBG_INC_WRITE_CNT(skb->data_len);
-	event_data = (unsigned long)(skb);
-	if (bam_ch[hdr->ch_id].notify)
-		bam_ch[hdr->ch_id].notify(
-			bam_ch[hdr->ch_id].priv, BAM_DMUX_WRITE_DONE,
-							event_data);
+	if (bam_ch[hdr->ch_id].write_done)
+		bam_ch[hdr->ch_id].write_done(
+			bam_ch[hdr->ch_id].priv, skb);
 	else
 		dev_kfree_skb_any(skb);
 }
@@ -406,7 +400,8 @@ int msm_bam_dmux_write(uint32_t id, struct sk_buff *skb)
 }
 
 int msm_bam_dmux_open(uint32_t id, void *priv,
-			void (*notify)(void *, int, unsigned long))
+			void (*receive_cb)(void *, struct sk_buff *),
+			void (*write_done)(void *, struct sk_buff *))
 {
 	struct bam_mux_hdr *hdr;
 	unsigned long flags;
@@ -416,8 +411,6 @@ int msm_bam_dmux_open(uint32_t id, void *priv,
 	if (!bam_mux_initialized)
 		return -ENODEV;
 	if (id >= BAM_DMUX_NUM_CHANNELS)
-		return -EINVAL;
-	if (notify == NULL)
 		return -EINVAL;
 
 	hdr = kmalloc(sizeof(struct bam_mux_hdr), GFP_KERNEL);
@@ -440,7 +433,8 @@ int msm_bam_dmux_open(uint32_t id, void *priv,
 		goto open_done;
 	}
 
-	bam_ch[id].notify = notify;
+	bam_ch[id].receive_cb = receive_cb;
+	bam_ch[id].write_done = write_done;
 	bam_ch[id].priv = priv;
 	bam_ch[id].status |= BAM_CH_LOCAL_OPEN;
 	spin_unlock_irqrestore(&bam_ch[id].lock, flags);
@@ -472,7 +466,8 @@ int msm_bam_dmux_close(uint32_t id)
 		return -ENODEV;
 	spin_lock_irqsave(&bam_ch[id].lock, flags);
 
-	bam_ch[id].notify = NULL;
+	bam_ch[id].write_done = NULL;
+	bam_ch[id].receive_cb = NULL;
 	bam_ch[id].priv = NULL;
 	bam_ch[id].status &= ~BAM_CH_LOCAL_OPEN;
 	spin_unlock_irqrestore(&bam_ch[id].lock, flags);
