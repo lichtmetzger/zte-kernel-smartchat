@@ -57,7 +57,6 @@ struct usb_ep;
  *	Note that for writes (IN transfers) some data bytes may still
  *	reside in a device-side FIFO when the request is reported as
  *	complete.
- *@udc_priv: Vendor private data in usage by the UDC.
  *
  * These are allocated/freed through the endpoint they're used with.  The
  * hardware's driver can add extra per-request data to the memory it returns,
@@ -73,7 +72,7 @@ struct usb_ep;
  * Bulk endpoints can use any size buffers, and can also be used for interrupt
  * transfers. interrupt-only endpoints can be much less functional.
  *
- * NOTE:  this is analogous to 'struct urb' on the host side, except that
+ * NOTE:  this is analagous to 'struct urb' on the host side, except that
  * it's thinner and promotes more pre-allocation.
  */
 
@@ -93,7 +92,6 @@ struct usb_request {
 
 	int			status;
 	unsigned		actual;
-	unsigned		udc_priv;
 };
 
 /*-------------------------------------------------------------------------*/
@@ -113,6 +111,7 @@ struct usb_ep_ops {
 	struct usb_request *(*alloc_request) (struct usb_ep *ep,
 		gfp_t gfp_flags);
 	void (*free_request) (struct usb_ep *ep, struct usb_request *req);
+
 	int (*queue) (struct usb_ep *ep, struct usb_request *req,
 		gfp_t gfp_flags);
 	int (*dequeue) (struct usb_ep *ep, struct usb_request *req);
@@ -270,7 +269,7 @@ static inline void usb_ep_free_request(struct usb_ep *ep,
  *
  * Control endpoints ... after getting a setup() callback, the driver queues
  * one response (even if it would be zero length).  That enables the
- * status ack, after transferring data as specified in the response.  Setup
+ * status ack, after transfering data as specified in the response.  Setup
  * functions may return negative error codes to generate protocol stalls.
  * (Note that some USB device controllers disallow protocol stall responses
  * in some cases.)  When control responses are deferred (the response is
@@ -892,8 +891,8 @@ static inline void usb_free_descriptors(struct usb_descriptor_header **v)
 /* utility wrapping a simple endpoint selection policy */
 
 extern struct usb_ep *usb_ep_autoconfig(struct usb_gadget *,
-			struct usb_endpoint_descriptor *);
+			struct usb_endpoint_descriptor *) __devinit;
 
-extern void usb_ep_autoconfig_reset(struct usb_gadget *);
+extern void usb_ep_autoconfig_reset(struct usb_gadget *) __devinit;
 
 #endif /* __LINUX_USB_GADGET_H */

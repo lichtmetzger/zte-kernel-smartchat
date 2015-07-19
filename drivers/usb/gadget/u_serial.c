@@ -1092,7 +1092,7 @@ static int gs_break_ctl(struct tty_struct *tty, int duration)
 	return status;
 }
 
-static int gs_tiocmget(struct tty_struct *tty)
+static int gs_tiocmget(struct tty_struct *tty, struct file *file)
 {
 	struct gs_port	*port = tty->driver_data;
 	struct gserial	*gser;
@@ -1121,7 +1121,7 @@ fail:
 	return result;
 }
 
-static int gs_tiocmset(struct tty_struct *tty,
+static int gs_tiocmset(struct tty_struct *tty, struct file *file,
 	unsigned int set, unsigned int clear)
 {
 	struct gs_port	*port = tty->driver_data;
@@ -1181,7 +1181,7 @@ static const struct tty_operations gs_tty_ops = {
 
 static struct tty_driver *gs_tty_driver;
 
-static int
+static int __init
 gs_port_alloc(unsigned port_num, struct usb_cdc_line_coding *coding)
 {
 	struct gs_port	*port;
@@ -1285,19 +1285,19 @@ static ssize_t debug_write_reset(struct file *file, const char __user *buf,
 	return count;
 }
 
-static int serial_debug_open(struct inode *inode, struct file *file)
+static int debug_open(struct inode *inode, struct file *file)
 {
 	file->private_data = inode->i_private;
 	return 0;
 }
 
 const struct file_operations debug_rst_ops = {
-	.open = serial_debug_open,
+	.open = debug_open,
 	.write = debug_write_reset,
 };
 
 const struct file_operations debug_adb_ops = {
-	.open = serial_debug_open,
+	.open = debug_open,
 	.read = debug_read_status,
 };
 
@@ -1312,7 +1312,7 @@ static void usb_debugfs_init(struct gs_port *ui_dev, int port_num)
 		return;
 
 	debugfs_create_file("readstatus", 0444, dent, ui_dev, &debug_adb_ops);
-	debugfs_create_file("reset", 0224, dent, ui_dev, &debug_rst_ops); //wzy_change from 0222->0224 for cts
+	debugfs_create_file("reset", 0222, dent, ui_dev, &debug_rst_ops);
 }
 #else
 static void usb_debugfs_init(struct gs_port *ui_dev) {}
@@ -1337,7 +1337,7 @@ static void usb_debugfs_init(struct gs_port *ui_dev) {}
  *
  * Returns negative errno or zero.
  */
-int gserial_setup(struct usb_gadget *g, unsigned count)
+int __init gserial_setup(struct usb_gadget *g, unsigned count)
 {
 	unsigned			i;
 	struct usb_cdc_line_coding	coding;
@@ -1423,8 +1423,7 @@ int gserial_setup(struct usb_gadget *g, unsigned count)
 fail:
 	while (count--)
 		kfree(ports[count].port);
-	if (gserial_wq)
-		destroy_workqueue(gserial_wq);
+	destroy_workqueue(gserial_wq);
 	put_tty_driver(gs_tty_driver);
 	gs_tty_driver = NULL;
 	return status;

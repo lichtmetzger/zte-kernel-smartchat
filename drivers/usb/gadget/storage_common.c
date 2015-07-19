@@ -205,17 +205,11 @@ struct interrupt_data {
 /* Length of a SCSI Command Data Block */
 #define MAX_COMMAND_SIZE	16
 
-//SCSI Command for swithing on Windows and Mac OS
-#define SC_SWITCH_MODE	0x85 
-#define SC_SWITCH_MODE_MAC_OS	0xa1 
-
+#define SC_SWITCH_MODE	0x85 //USB_HML_20100602
+#define SC_SWITCH_MODE_MAC_OS	0xa1 //SCSI Command for swithing on Mac OS
 //SCSI Command for OS X
 #define SC_GET_CONFIGRATION    0x46
 #define SC_SET_CD_SPEED	           0xbb	
-
-// xingbeilei_20110801 start_stop usb debug
-#define SC_START_STOP_USB_DEBUG  0x86
-
 /* SCSI Sense Key/Additional Sense Code/ASC Qualifier values */
 #define SS_NO_SENSE				0
 #define SS_COMMUNICATION_FAILURE		0x040800
@@ -259,17 +253,6 @@ struct fsg_lun {
 	u32		unit_attention_data;
 
 	struct device	dev;
-#ifdef CONFIG_USB_MSC_PROFILING
-	spinlock_t	lock;
-	struct {
-
-		unsigned long rbytes;
-		unsigned long wbytes;
-		ktime_t rtime;
-		ktime_t wtime;
-	} perf;
-
-#endif
 };
 
 #define fsg_lun_is_open(curlun)	((curlun)->filp != NULL)
@@ -704,43 +687,6 @@ static ssize_t fsg_show_nofua(struct device *dev, struct device_attribute *attr,
 	return sprintf(buf, "%u\n", curlun->nofua);
 }
 
-#ifdef CONFIG_USB_MSC_PROFILING
-static ssize_t fsg_show_perf(struct device *dev, struct device_attribute *attr,
-			      char *buf)
-{
-	struct fsg_lun	*curlun = fsg_lun_from_dev(dev);
-	unsigned long rbytes, wbytes;
-	int64_t rtime, wtime;
-
-	spin_lock(&curlun->lock);
-	rbytes = curlun->perf.rbytes;
-	wbytes = curlun->perf.wbytes;
-	rtime = ktime_to_us(curlun->perf.rtime);
-	wtime = ktime_to_us(curlun->perf.wtime);
-	spin_unlock(&curlun->lock);
-
-	return snprintf(buf, PAGE_SIZE, "Write performance :"
-					"%lu bytes in %lld microseconds\n"
-					"Read performance :"
-					"%lu bytes in %lld microseconds\n",
-					wbytes, wtime, rbytes, rtime);
-}
-static ssize_t fsg_store_perf(struct device *dev, struct device_attribute *attr,
-			const char *buf, size_t count)
-{
-	struct fsg_lun	*curlun = fsg_lun_from_dev(dev);
-	int value;
-
-	sscanf(buf, "%d", &value);
-	if (!value) {
-		spin_lock(&curlun->lock);
-		memset(&curlun->perf, 0, sizeof(curlun->perf));
-		spin_unlock(&curlun->lock);
-	}
-
-	return count;
-}
-#endif
 static ssize_t fsg_show_file(struct device *dev, struct device_attribute *attr,
 			     char *buf)
 {
@@ -772,14 +718,13 @@ static ssize_t fsg_show_file(struct device *dev, struct device_attribute *attr,
 static ssize_t fsg_store_ro(struct device *dev, struct device_attribute *attr,
 			    const char *buf, size_t count)
 {
-	ssize_t		rc;
+	ssize_t		rc = count;
 	struct fsg_lun	*curlun = fsg_lun_from_dev(dev);
 	struct rw_semaphore	*filesem = dev_get_drvdata(dev);
-	unsigned	ro;
+	unsigned long	ro;
 
-	rc = kstrtouint(buf, 2, &ro);
-	if (rc)
-		return rc;
+	if (strict_strtoul(buf, 2, &ro))
+		return -EINVAL;
 
 	/*
 	 * Allow the write-enable status to change only while the
@@ -793,7 +738,6 @@ static ssize_t fsg_store_ro(struct device *dev, struct device_attribute *attr,
 		curlun->ro = ro;
 		curlun->initially_ro = ro;
 		LDBG(curlun, "read-only status set to %d\n", curlun->ro);
-		rc = count;
 	}
 	up_read(filesem);
 	return rc;
@@ -804,12 +748,10 @@ static ssize_t fsg_store_nofua(struct device *dev,
 			       const char *buf, size_t count)
 {
 	struct fsg_lun	*curlun = fsg_lun_from_dev(dev);
-	unsigned	nofua;
-	int		ret;
+	unsigned long	nofua;
 
-	ret = kstrtouint(buf, 2, &nofua);
-	if (ret)
-		return ret;
+	if (strict_strtoul(buf, 2, &nofua))
+		return -EINVAL;
 
 	/* Sync data when switching from async mode to sync */
 	if (!nofua && curlun->nofua)
