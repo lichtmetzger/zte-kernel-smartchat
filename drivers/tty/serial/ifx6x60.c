@@ -262,6 +262,7 @@ static int ifx_spi_tiocmget(struct tty_struct *tty)
 /**
  *	ifx_spi_tiocmset	-	set modem bits
  *	@tty: the tty structure
+ *	@filp: file handle issuing the request
  *	@set: bits to set
  *	@clear: bits to clear
  *
@@ -270,7 +271,7 @@ static int ifx_spi_tiocmget(struct tty_struct *tty)
  *
  *	FIXME: do we need to kick the tranfers when we do this ?
  */
-static int ifx_spi_tiocmset(struct tty_struct *tty,
+static int ifx_spi_tiocmset(struct tty_struct *tty, struct file *filp,
 			    unsigned int set, unsigned int clear)
 {
 	struct ifx_spi_device *ifx_dev = tty->driver_data;

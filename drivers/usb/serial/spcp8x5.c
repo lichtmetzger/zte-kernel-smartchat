@@ -595,7 +595,7 @@ static int spcp8x5_ioctl(struct tty_struct *tty, struct file *file,
 	return -ENOIOCTLCMD;
 }
 
-static int spcp8x5_tiocmset(struct tty_struct *tty,
+static int spcp8x5_tiocmset(struct tty_struct *tty, struct file *file,
 			    unsigned int set, unsigned int clear)
 {
 	struct usb_serial_port *port = tty->driver_data;

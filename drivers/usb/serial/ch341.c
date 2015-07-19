@@ -432,7 +432,7 @@ out:
 	kfree(break_reg);
 }
 
-static int ch341_tiocmset(struct tty_struct *tty,
+static int ch341_tiocmset(struct tty_struct *tty, struct file *file,
 			  unsigned int set, unsigned int clear)
 {
 	struct usb_serial_port *port = tty->driver_data;

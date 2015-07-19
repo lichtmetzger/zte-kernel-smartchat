@@ -1674,7 +1674,7 @@ static int mos7840_tiocmget(struct tty_struct *tty)
 	return result;
 }
 
-static int mos7840_tiocmset(struct tty_struct *tty,
+static int mos7840_tiocmset(struct tty_struct *tty, struct file *file,
 			    unsigned int set, unsigned int clear)
 {
 	struct usb_serial_port *port = tty->driver_data;
