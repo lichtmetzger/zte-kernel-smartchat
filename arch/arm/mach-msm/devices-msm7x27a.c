@@ -24,7 +24,7 @@
 #include <asm/hardware/cache-l2x0.h>
 #include <asm/mach/mmc.h>
 #include <mach/usbdiag.h>
-
+#include <mach/usb_gadget_fserial.h>
 #include <mach/rpc_hsusb.h>
 #include <mach/socinfo.h>
 
@@ -200,7 +200,17 @@ struct platform_device usb_diag_device = {
 		.platform_data = &usb_diag_pdata,
 	},
 };
+static struct usb_gadget_fserial_platform_data fserial_pdata = {
+	.no_ports	= 3,
+};
 
+struct platform_device usb_gadget_fserial_device = {
+	.name	= "usb_fserial",
+	.id	= -1,
+	.dev	= {
+		.platform_data = &fserial_pdata,
+	},
+};
 static struct resource msm_dmov_resource[] = {
 	{
 		.start	= INT_ADM_AARM,
