@@ -54,26 +54,6 @@ int32_t ov5640_TouchAF_x = -1;
 int32_t ov5640_TouchAF_y = -1;
 static int OV5640_CSI_CONFIG = 0;
 
-
-#ifdef CONFIG_MACH_ATLAS40
-#define ZTE_FIX_WB_ENABLE
-#endif
-
-//modify for preview abnormal in mono mode after snapshot  by lijing ZTE_CAM_LJ_20120627]
-static int8_t  zte_effect=0;
-static int8_t  zte_sat=2;
-static int8_t  zte_contrast=2;
-static int8_t  zte_sharpness=2;
-
-#ifdef ZTE_FIX_WB_ENABLE
-extern  uint32_t flash_led_enable;
-static int8_t  zte_wb_mode=0;
-static int     zte_disable_wb_auto_flag=0; 
-static int     zte_flash_on_fix_wb(void);
-static int 	   zte_flash_on_fix_wb_setreg(void);
-#endif
-
-
 struct ov5640_work {
 	struct work_struct work;
 };
@@ -86,6 +66,18 @@ extern int32_t msm_camera_power_backend(enum msm_camera_pwr_mode_t pwr_mode);
 extern int msm_camera_clk_switch(const struct msm_camera_sensor_info *data,
                                         uint32_t gpio_switch,
                                          uint32_t switch_val);
+
+/*
+ * ZTE_CAM_LJ_20120310
+ * Get FTM flag to adjust 
+ * the initialize process 
+ * of camera
+ */
+#ifdef CONFIG_ZTE_PLATFORM
+#ifdef CONFIG_ZTE_FTM_FLAG_SUPPORT
+extern int zte_get_ftm_flag(void);
+#endif
+#endif
 
 
 static u8 ov5640_i2c_buf[4];
@@ -898,17 +890,14 @@ static int ov5640_get_preview_exposure_gain(void)
 	
 
     #if 1
-	//modify for preview abnormal in mono mode after snapshot  by lijing ZTE_CAM_LJ_20120627
-	if(CAMERA_EFFECT_OFF == zte_effect) {
-		//keep saturation same for preview and capture
-		ov5640_i2c_read_byte_1(0x558c, &UV);
-		ov5640_i2c_read_byte_1(0x5588, &temp);
-		temp = temp | 0x40;
-		ov5640_i2c_write_b_sensor(0x5588, temp); //Manual UV
-		ov5640_i2c_write_b_sensor(0x5583, UV);
-		ov5640_i2c_write_b_sensor(0x5584, UV);
-		printk("preview_UV=%d\n", UV);
-	}
+	//keep saturation same for preview and capture
+	ov5640_i2c_read_byte_1(0x558c, &UV);
+	ov5640_i2c_read_byte_1(0x5588, &temp);
+	temp = temp | 0x40;
+	ov5640_i2c_write_b_sensor(0x5588, temp); //Manual UV
+	ov5640_i2c_write_b_sensor(0x5583, UV);
+	ov5640_i2c_write_b_sensor(0x5584, UV);
+	printk("preview_UV=%d\n", UV);
     #endif
 
 	//keep Lenc same for preview and capture
@@ -950,6 +939,10 @@ static int ov5640_get_preview_exposure_gain(void)
  // read preview HTS	 
  preview_HTS = ov5640_get_HTS();
 	
+  #ifdef ZTE_FIX_WB_ENABLE
+	zte_flash_on_fix_wb();
+	#endif
+	
     return rc;
 }
 
@@ -990,95 +983,6 @@ static int ov5640_get_preview_exposure_gain(void)
 }
 #endif
 
-
-#ifdef ZTE_FIX_WB_ENABLE
-static int zte_flash_on_fix_wb_setreg()
-{
-    //3406 01 disable wb-auto
-	//3406 00 enable wb-auto
-	int rc = 0;
-	pr_err("%s\r\n",__func__);
-	rc = ov5640_i2c_write(ov5640_client->addr, 0x3406, 0x01, 1,WORD_LEN); 
-	if (rc < 0)
-	{
-		return rc;
-	} 
-	zte_disable_wb_auto_flag=1;
-	
-	rc = ov5640_i2c_write(ov5640_client->addr, 0x3400, 0x07, 1,WORD_LEN); //0x0a
-	if (rc < 0)
-	{
-		return rc;
-	} 
-   rc = ov5640_i2c_write(ov5640_client->addr, 0x3401, 0x90, 1,WORD_LEN); //0x5c
-	if (rc < 0)
-	{
-		return rc;
-	} 
-   rc = ov5640_i2c_write(ov5640_client->addr, 0x3402, 0x04, 1,WORD_LEN); //0x05
-	if (rc < 0)
-	{
-		return rc;
-	} 
-   rc = ov5640_i2c_write(ov5640_client->addr, 0x3403, 0x50, 1,WORD_LEN);
-	if (rc < 0)
-	{
-		return rc;
-	} 
-   rc = ov5640_i2c_write(ov5640_client->addr, 0x3404, 0x06, 1,WORD_LEN);//0x05
-	if (rc < 0)
-	{
-		return rc;
-	} 
-   rc = ov5640_i2c_write(ov5640_client->addr, 0x3405, 0xc0, 1,WORD_LEN); 
-	if (rc < 0)
-	{
-		return rc;
-	} 	
-    
-	return rc;
-}
-
-/*
-*wb_auto is on ,flash is on ,bright <0x30 ,then will fix wb 
-*wb_auto is on ,flash is auto  ,bright <0x10 ,then will fix wb 
-*/
-static int  zte_flash_on_fix_wb(void)
-{
-	int rc = 0;
-	  
-	unsigned int bright_val=0;
-
-	   
-    rc = ov5640_i2c_read_byte(ov5640_client->addr, 0x56a1, &bright_val);
-    if (rc < 0)
-    {
-        return rc;
-    }
-
-	
-	pr_err("0x56a1 g_bright_val =0x%x  flash_led_enable=%d zte_wb_mode=%d",
-	bright_val,flash_led_enable,zte_wb_mode);
-
-    if((zte_wb_mode == 1 )&&((flash_led_enable == 1)&&(bright_val < 0x30)))
-	{
-		zte_flash_on_fix_wb_setreg();
-		pr_err("flash on ");
-	}
-	
-	if((zte_wb_mode == 1 )&&((flash_led_enable == 2)&&(bright_val < 0x10)))
-	{
-		zte_flash_on_fix_wb_setreg();
-		pr_err("flash auto ");
-	}
-	
-	return 0;  
-
-
-}
-#endif
-
-
 static int ov5640_set_capture_exposure_gain(void)
 {
     int rc = 0;
@@ -1090,9 +994,6 @@ static int ov5640_set_capture_exposure_gain(void)
 	 int light_frequency, capture_bandingfilter, capture_max_band;
 	 long int capture_gain16_shutter,capture_shutter;
 	 unsigned short average;
-	 #ifdef ZTE_FIX_WB_ENABLE
-	zte_flash_on_fix_wb();
-       #endif
 
 	 // read preview shutter	 
 	 preview_shutter = ov5640_preview_exposure;	 
@@ -1167,7 +1068,7 @@ static int ov5640_set_capture_exposure_gain(void)
 		 }
 	 }
 
-#if 0 // Ö÷¹Û²âÊÔ°æ±¾ 2011-12-21 ken
+#if 0 // \D6\F7\B9Û²\E2\CAÔ°æ±¾ 2011-12-21 ken
         //kenxu add for reduce noise under dark condition
         if(iCapture_Gain > 32) //gain > 2x, gain / 2, exposure * 2;
         {
@@ -1228,6 +1129,96 @@ static int ov5640_set_capture_exposure_gain(void)
     return rc;
 }
 
+static int ov5640_video_config(void)
+{
+	int rc = 0;
+    int i;
+    unsigned short temp;
+    unsigned int  af_ack;
+	pr_err("--CAMERA-- ov5640_video_config\n");
+
+	pr_err("--CAMERA-- preview in, is_autoflash - 0x%x\n", is_autoflash);
+
+	/* autoflash setting */
+	if (is_autoflash == 1) {
+		ov5640_set_flash_light(LED_OFF);
+	}
+
+	/* preview setting */
+	rc = OV5640Core_WritePREG(ov5640_regs.preview_tbl,ov5640_regs.preview_tbl_size);   
+
+	ov5640_i2c_read_byte_1(0x5588, &temp);
+	temp = temp & 0xbf;
+	ov5640_i2c_write_b_sensor(0x5588, temp); //Auto UV
+		
+	ov5640_set_bandingfilter();
+	
+
+	rc = ov5640_i2c_write(ov5640_client->addr, 0x3000, 0x0020, 1,WORD_LEN);
+	if (rc < 0)
+	{
+		pr_err("%s: failed, rc=%d!\n", __func__, rc);
+		return rc;
+	}
+	mdelay(10);  
+
+	rc = ov5640_i2c_write(ov5640_client->addr, 0x3000,0x0000, 1,WORD_LEN);
+	if (rc < 0)
+	{
+		pr_err("%s: failed, rc=%d!\n", __func__, rc);
+		return rc;
+	}
+
+	// release focus status		    
+	 rc = ov5640_i2c_write(ov5640_client->addr, 0x3023, 0x0001, 1,WORD_LEN);
+	 if (rc < 0)
+	{
+		pr_err("%s: failed, rc=%d!\n", __func__, rc);
+		return rc;
+	}
+				
+	rc = ov5640_i2c_write(ov5640_client->addr, 0x3022, 0x0008,1, WORD_LEN);
+	if (rc < 0)
+	{
+		pr_err("%s: failed, rc=%d!\n",__func__, rc);        
+		return rc;
+	}
+	af_ack = 0x0002;//set af_ack value for compare its value from get 
+	 for ( i = 0; (i < 200) && (0x0000 != af_ack); ++i)
+	{
+		af_ack = 0x0002;
+		rc = ov5640_i2c_read_byte(ov5640_client->addr, 0x3023, &af_ack);
+		if (rc < 0)
+		{
+			return rc;
+		}
+			mdelay(15);  
+	}
+	 rc = ov5640_i2c_write(ov5640_client->addr, 0x3023, 0x0001, 1,WORD_LEN);
+	 if (rc < 0)
+	{
+		return rc;
+	}
+	rc = ov5640_i2c_write(ov5640_client->addr, 0x3022, 0x0012,1, WORD_LEN);
+	if (rc < 0)
+	{
+		return rc;
+	} 
+	af_ack = 0x0002;//set af_ack value for compare its value from get 
+	 for ( i = 0; (i < 200) && (0x0000 != af_ack); ++i)
+	{
+		af_ack = 0x0002;
+		rc = ov5640_i2c_read_byte(ov5640_client->addr, 0x3023, &af_ack);
+				
+		if (rc < 0)
+		{
+			return rc;
+		}
+			mdelay(15);  
+	}
+	return rc;
+}
+
 static int ov5640_snapshot_config(void)
 {
 	int rc = 0;
@@ -1255,6 +1246,208 @@ static int ov5640_snapshot_config(void)
 	return rc;
 }
 
+static int ov5640_setting(enum msm_s_reg_update rupdate,enum msm_s_setting rt)
+{
+	int rc = -EINVAL;
+	unsigned int tmp;
+	struct msm_camera_csi_params ov5640_csi_params;
+
+	pr_err("--CAMERA-- %s (Start...), rupdate=%d \n",__func__,rupdate);
+
+	switch (rupdate)
+	{
+	case S_UPDATE_PERIODIC:
+		camera_sw_power_onoff(0); //standby
+
+		msleep(20);
+
+		ov5640_csi_params.lane_cnt = 2;
+		ov5640_csi_params.data_format = CSI_8BIT;
+		ov5640_csi_params.lane_assign = 0xe4;
+		ov5640_csi_params.dpcm_scheme = 0;
+		ov5640_csi_params.settle_cnt = 0x6;
+
+		pr_err("%s: msm_camio_csi_config\n", __func__);
+
+		rc = msm_camio_csi_config(&ov5640_csi_params);				
+		OV5640_CSI_CONFIG = 1;
+
+		msleep(20);
+
+		if (S_RES_PREVIEW == rt) {
+			rc = ov5640_video_config();
+		} else if (S_RES_CAPTURE == rt) {
+			rc = ov5640_snapshot_config();
+		}
+		camera_sw_power_onoff(1); //on
+
+		msleep(20);
+
+		break; /* UPDATE_PERIODIC */
+
+	case S_REG_INIT:
+		pr_err("--CAMERA-- S_REG_INIT (Start)\n");
+
+		rc = ov5640_i2c_write(ov5640_client->addr, 0x3103, 0x11, 10,WORD_LEN);
+		rc = ov5640_i2c_write(ov5640_client->addr, 0x3008, 0x82, 10,WORD_LEN);
+		msleep(5);
+
+		//set sensor init setting
+		pr_err("set sensor init setting\n");
+		rc = OV5640Core_WritePREG(ov5640_regs.init_tbl,ov5640_regs.init_tbl_size);
+		if (rc < 0) {
+			pr_err("sensor init setting failed\n");
+			break;
+		}
+
+		//set image quality setting
+		pr_err("%s: set image quality setting\n", __func__);
+		rc = OV5640Core_WritePREG(ov5640_regs.init_iq_tbl,ov5640_regs.init_iq_tbl_size);
+
+		rc =ov5640_i2c_read_byte(ov5640_client->addr, 0x4740, &tmp);			   
+		pr_err("--CAMERA-- init 0x4740 value=0x%x\n", tmp);
+
+		if (tmp != 0x21) {
+			rc = ov5640_i2c_write(ov5640_client->addr, 0x4740, 0x21, 10,WORD_LEN);
+			msleep(10);
+			rc =ov5640_i2c_read_byte(ov5640_client->addr, 0x4740, &tmp);			   
+			pr_err("--CAMERA-- WG 0x4740 value=0x%x\n", tmp);
+		}
+
+		pr_err("--CAMERA-- AF_init: afinit = %d\n", afinit);
+		if (afinit == 1) {
+			rc = ov5640_af_setting();
+			if (rc < 0) {
+				pr_err("--CAMERA-- ov5640_af_setting failed\n");
+				break;
+			}
+			afinit = 0;
+		}
+
+		/* reset fps_divider */
+		ov5640_ctrl->fps_divider = 1 * 0x0400;
+		pr_err("--CAMERA-- S_REG_INIT (End)\n");
+		break; /* case REG_INIT: */
+
+	default:
+		break;
+	} /* switch (rupdate) */
+
+	pr_err("--CAMERA-- %s (End), rupdate=%d \n",__func__,rupdate);
+
+	return rc;
+}
+
+static int ov5640_sensor_open_init(const struct msm_camera_sensor_info *data)
+{
+	int rc = -ENOMEM;
+	pr_err("--CAMERA-- %s\n",__func__);
+
+	ov5640_ctrl = kzalloc(sizeof(struct __ov5640_ctrl), GFP_KERNEL);
+	if (!ov5640_ctrl)
+	{
+		pr_err("--CAMERA-- kzalloc ov5640_ctrl error !!\n");
+		kfree(ov5640_ctrl);
+		return rc;
+	}
+
+#if 0
+	ov5640_ctrl->fps_divider = 1 * 0x00000400;
+	ov5640_ctrl->pict_fps_divider = 1 * 0x00000400;
+	ov5640_ctrl->set_test = S_TEST_OFF;
+	ov5640_ctrl->prev_res = S_QTR_SIZE;
+	ov5640_ctrl->pict_res = S_FULL_SIZE;
+
+	if (data)
+		ov5640_ctrl->sensordata = data;
+#endif
+#if 0
+	ov5640_power_off();
+#endif
+
+#if defined(CONFIG_MACH_ATLAS40) ||defined(CONFIG_MACH_BLADE2)	
+	rc = msm_camera_clk_switch(data, OV5640_GPIO_SWITCH_CTL, OV5640_GPIO_SWITCH_VAL);
+	if (rc < 0) {
+		pr_err("msm_camera_clk_switch fail\n");
+		return rc;
+	}
+#endif	
+
+	pr_err("%s: msm_camio_clk_rate_set\n", __func__);
+
+	msm_camio_clk_rate_set(24000000);
+	mdelay(5);
+
+	ov5640_pwdn_off();
+//ov5640_power_reset();
+      mdelay(100);
+	pr_err("%s: init sequence\n", __func__);
+
+#if 0
+	if (ov5640_ctrl->prev_res == S_QTR_SIZE)
+		rc = ov5640_setting(S_REG_INIT, S_RES_PREVIEW);
+	else
+		rc = ov5640_setting(S_REG_INIT, S_RES_CAPTURE);
+
+	if (rc < 0)
+	{
+		pr_err("--CAMERA-- %s : ov5640_setting failed. rc = %d\n",__func__,rc);
+		kfree(ov5640_ctrl);
+		return rc;
+	}
+#endif
+        rc = ov5640_i2c_write(ov5640_client->addr, 0x300e, 0x0045, 1, BYTE_LEN);
+        if (rc < 0)
+        {
+           return rc;
+        }
+   	mdelay(100);
+	pr_err("--CAMERA--re_init_sensor ok!!\n");
+	return rc;
+}
+
+static int ov5640_sensor_release(void)
+{
+       int rc = 0;
+	pr_err("--CAMERA--ov5640_sensor_release!!\n");
+
+	mutex_lock(&ov5640_mutex);
+
+
+     // neil add for power down mode
+        rc = ov5640_i2c_write(ov5640_client->addr, 0x300e, 0x005d, 1, BYTE_LEN);
+        if (rc < 0)
+        {
+           return rc;
+        }
+        
+	//ov5640_power_off();
+	ov5640_pwdn_on();
+
+       msleep(200);
+        
+	kfree(ov5640_ctrl);
+	ov5640_ctrl = NULL;
+
+	mutex_unlock(&ov5640_mutex);
+	return 0;
+}
+
+static const struct i2c_device_id ov5640_i2c_id[] = {
+	{"ov5640", 0},{}
+};
+
+static int ov5640_i2c_remove(struct i2c_client *client)
+{
+	return 0;
+}
+
+static int ov5640_init_client(struct i2c_client *client)
+{
+	/* Initialize the MSM_CAMI2C Chip */
+	init_waitqueue_head(&ov5640_wait_queue);
+	return 0;
+}
 
 static long ov5640_set_effect(int mode, int effect)
 {
@@ -2597,295 +2790,6 @@ static int ov5640_set_saturation(int saturation)
 	return rc;
 }
 #endif
-static int ov5640_video_config(void)
-{
-	int rc = 0;
-    int i;
-    unsigned short temp;
-    unsigned int  af_ack;
-	pr_err("--CAMERA-- ov5640_video_config\n");
-
-	pr_err("--CAMERA-- preview in, is_autoflash - 0x%x\n", is_autoflash);
-
-	/* autoflash setting */
-	if (is_autoflash == 1) {
-		ov5640_set_flash_light(LED_OFF);
-	}
-
-	/* preview setting */
-	
-	rc = OV5640Core_WritePREG(ov5640_regs.preview_tbl,ov5640_regs.preview_tbl_size);   
-
-	ov5640_i2c_read_byte_1(0x5588, &temp);
-	temp = temp & 0xbf;
-	ov5640_i2c_write_b_sensor(0x5588, temp); //Auto UV
-		
-	ov5640_set_bandingfilter();
-
-  	rc = ov5640_i2c_write(ov5640_client->addr, 0x3000, 0x0020, 1,WORD_LEN);
-	if (rc < 0)
-	{
-		pr_err("%s: failed, rc=%d!\n", __func__, rc);
-		return rc;
-	}
-	mdelay(10);  
-
-	rc = ov5640_i2c_write(ov5640_client->addr, 0x3000,0x0000, 1,WORD_LEN);
-	if (rc < 0)
-	{
-		pr_err("%s: failed, rc=%d!\n", __func__, rc);
-		return rc;
-	}
-       //modify for preview abnormal in mono mode after snapshot  by lijing ZTE_CAM_LJ_20120627
-	ov5640_set_effect(0,zte_effect);
-	ov5640_set_contrast(zte_contrast);
-	ov5640_set_sharpness(zte_sharpness);
-	ov5640_set_saturation(zte_sat);
-	
-
-#ifdef ZTE_FIX_WB_ENABLE
-			if(zte_disable_wb_auto_flag)
-			{
-				rc = ov5640_i2c_write(ov5640_client->addr, 0x3406, 0x0000, 1,WORD_LEN); //denable wb_auto
-				zte_disable_wb_auto_flag=0;
-				pr_err("flash fix awb zte_enable_wb_auto_flag");
-			}
-#endif
-	
-
-	// release focus status		    
-	 rc = ov5640_i2c_write(ov5640_client->addr, 0x3023, 0x0001, 1,WORD_LEN);
-	 if (rc < 0)
-	{
-		pr_err("%s: failed, rc=%d!\n", __func__, rc);
-		return rc;
-	}
-				
-	rc = ov5640_i2c_write(ov5640_client->addr, 0x3022, 0x0008,1, WORD_LEN);
-	if (rc < 0)
-	{
-		pr_err("%s: failed, rc=%d!\n",__func__, rc);        
-		return rc;
-	}
-	af_ack = 0x0002;//set af_ack value for compare its value from get 
-	 for ( i = 0; (i < 200) && (0x0000 != af_ack); ++i)
-	{
-		af_ack = 0x0002;
-		rc = ov5640_i2c_read_byte(ov5640_client->addr, 0x3023, &af_ack);
-				
-		if (rc < 0)
-		{
-			return rc;
-		}
-			mdelay(15);  
-	}
-	return rc;
-}
-
-static int ov5640_setting(enum msm_s_reg_update rupdate,enum msm_s_setting rt)
-{
-	int rc = -EINVAL;
-	unsigned int tmp;
-	struct msm_camera_csi_params ov5640_csi_params;
-
-	pr_err("--CAMERA-- %s (Start...), rupdate=%d \n",__func__,rupdate);
-
-	switch (rupdate)
-	{
-	case S_UPDATE_PERIODIC:
-		camera_sw_power_onoff(0); //standby
-
-		msleep(20);
-
-		ov5640_csi_params.lane_cnt = 2;
-		ov5640_csi_params.data_format = CSI_8BIT;
-		ov5640_csi_params.lane_assign = 0xe4;
-		ov5640_csi_params.dpcm_scheme = 0;
-		ov5640_csi_params.settle_cnt = 0x6;
-
-		pr_err("%s: msm_camio_csi_config\n", __func__);
-
-		rc = msm_camio_csi_config(&ov5640_csi_params);				
-		OV5640_CSI_CONFIG = 1;
-
-		msleep(20);
-
-		if (S_RES_PREVIEW == rt) {
-			rc = ov5640_video_config();
-		} else if (S_RES_CAPTURE == rt) {
-			rc = ov5640_snapshot_config();
-		}
-		camera_sw_power_onoff(1); //on
-
-		msleep(20);
-
-		break; /* UPDATE_PERIODIC */
-
-	case S_REG_INIT:
-		pr_err("--CAMERA-- S_REG_INIT (Start)\n");
-
-		rc = ov5640_i2c_write(ov5640_client->addr, 0x3103, 0x11, 10,WORD_LEN);
-		rc = ov5640_i2c_write(ov5640_client->addr, 0x3008, 0x82, 10,WORD_LEN);
-		msleep(5);
-
-		//set sensor init setting
-		pr_err("set sensor init setting\n");
-		rc = OV5640Core_WritePREG(ov5640_regs.init_tbl,ov5640_regs.init_tbl_size);
-		if (rc < 0) {
-			pr_err("sensor init setting failed\n");
-			break;
-		}
-
-		//set image quality setting
-		pr_err("%s: set image quality setting\n", __func__);
-		rc = OV5640Core_WritePREG(ov5640_regs.init_iq_tbl,ov5640_regs.init_iq_tbl_size);
-
-		rc =ov5640_i2c_read_byte(ov5640_client->addr, 0x4740, &tmp);			   
-		pr_err("--CAMERA-- init 0x4740 value=0x%x\n", tmp);
-
-		if (tmp != 0x21) {
-			rc = ov5640_i2c_write(ov5640_client->addr, 0x4740, 0x21, 10,WORD_LEN);
-			msleep(10);
-			rc =ov5640_i2c_read_byte(ov5640_client->addr, 0x4740, &tmp);			   
-			pr_err("--CAMERA-- WG 0x4740 value=0x%x\n", tmp);
-		}
-
-		pr_err("--CAMERA-- AF_init: afinit = %d\n", afinit);
-		if (afinit == 1) {
-			rc = ov5640_af_setting();
-			if (rc < 0) {
-				pr_err("--CAMERA-- ov5640_af_setting failed\n");
-				break;
-			}
-			afinit = 0;
-		}
-
-		/* reset fps_divider */
-		ov5640_ctrl->fps_divider = 1 * 0x0400;
-		pr_err("--CAMERA-- S_REG_INIT (End)\n");
-		break; /* case REG_INIT: */
-
-	default:
-		break;
-	} /* switch (rupdate) */
-
-	pr_err("--CAMERA-- %s (End), rupdate=%d \n",__func__,rupdate);
-
-	return rc;
-}
-
-static int ov5640_sensor_open_init(const struct msm_camera_sensor_info *data)
-{
-	int rc = -ENOMEM;
-	pr_err("--CAMERA-- %s\n",__func__);
-
-	ov5640_ctrl = kzalloc(sizeof(struct __ov5640_ctrl), GFP_KERNEL);
-	if (!ov5640_ctrl)
-	{
-		pr_err("--CAMERA-- kzalloc ov5640_ctrl error !!\n");
-		kfree(ov5640_ctrl);
-		return rc;
-	}
-
-#if 0
-	ov5640_ctrl->fps_divider = 1 * 0x00000400;
-	ov5640_ctrl->pict_fps_divider = 1 * 0x00000400;
-	ov5640_ctrl->set_test = S_TEST_OFF;
-	ov5640_ctrl->prev_res = S_QTR_SIZE;
-	ov5640_ctrl->pict_res = S_FULL_SIZE;
-
-	if (data)
-		ov5640_ctrl->sensordata = data;
-#endif
-#if 0
-	ov5640_power_off();
-#endif
-
-#if defined(CONFIG_MACH_ATLAS40) ||defined(CONFIG_MACH_BLADE2)	
-	rc = msm_camera_clk_switch(data, OV5640_GPIO_SWITCH_CTL, OV5640_GPIO_SWITCH_VAL);
-	if (rc < 0) {
-		pr_err("msm_camera_clk_switch fail\n");
-		return rc;
-	}
-#endif	
-
-	pr_err("%s: msm_camio_clk_rate_set\n", __func__);
-
-	msm_camio_clk_rate_set(24000000);
-	mdelay(5);
-
-	ov5640_pwdn_off();
-//ov5640_power_reset();
-      mdelay(100);
-	pr_err("%s: init sequence\n", __func__);
-
-#if 0
-	if (ov5640_ctrl->prev_res == S_QTR_SIZE)
-		rc = ov5640_setting(S_REG_INIT, S_RES_PREVIEW);
-	else
-		rc = ov5640_setting(S_REG_INIT, S_RES_CAPTURE);
-
-	if (rc < 0)
-	{
-		pr_err("--CAMERA-- %s : ov5640_setting failed. rc = %d\n",__func__,rc);
-		kfree(ov5640_ctrl);
-		return rc;
-	}
-#endif
-        rc = ov5640_i2c_write(ov5640_client->addr, 0x300e, 0x0045, 1, BYTE_LEN);
-        if (rc < 0)
-        {
-           return rc;
-        }
-   	mdelay(100);
-	pr_err("--CAMERA--re_init_sensor ok!!\n");
-	return rc;
-}
-
-static int ov5640_sensor_release(void)
-{
-       int rc = 0;
-	pr_err("--CAMERA--ov5640_sensor_release!!\n");
-
-	mutex_lock(&ov5640_mutex);
-
-
-     // neil add for power down mode
-        rc = ov5640_i2c_write(ov5640_client->addr, 0x300e, 0x005d, 1, BYTE_LEN);
-        if (rc < 0)
-        {
-           return rc;
-        }
-        
-	//ov5640_power_off();
-	ov5640_pwdn_on();
-
-       msleep(200);
-        
-	kfree(ov5640_ctrl);
-	ov5640_ctrl = NULL;
-
-	mutex_unlock(&ov5640_mutex);
-	return 0;
-}
-
-static const struct i2c_device_id ov5640_i2c_id[] = {
-	{"ov5640", 0},{}
-};
-
-static int ov5640_i2c_remove(struct i2c_client *client)
-{
-	return 0;
-}
-
-static int ov5640_init_client(struct i2c_client *client)
-{
-	/* Initialize the MSM_CAMI2C Chip */
-	init_waitqueue_head(&ov5640_wait_queue);
-	return 0;
-}
-
-
 #if 1
 static long ov5640_set_antibanding(int antibanding)
 {
@@ -3466,7 +3370,7 @@ static int32_t ov5640_set_iso(int8_t iso_val)
             {
                return rc;
             }
-            #if 1 // Ö÷¹Û²âÊÔ°æ±¾ 2011-06-16 ken
+            #if 1 // \D6\F7\B9Û²\E2\CAÔ°æ±¾ 2011-06-16 ken
             rc = ov5640_i2c_write(ov5640_client->addr, 0x3A19 ,0x00f8, 1, WORD_LEN);
             #else
             rc = ov5640_i2c_write(ov5640_client->addr, 0x3A19 ,0x0040, WORD_LEN);
@@ -3805,7 +3709,11 @@ static int32_t ov5640_af_trigger(void)
  done:
 	ov5640_TouchAF_x = -1;
 	ov5640_TouchAF_y = -1;
-	return rc;
+
+	pr_err("lijing:af return success\n");
+
+	return 0; //always return success by lijing20120710
+	//return rc;
 }
     
 /* ZTE_YGL_CAM_20111230
@@ -3905,7 +3813,6 @@ static int ov5640_sensor_start_af(void)
 	return rc;
 }
 #endif
-
 static int ov5640_sensor_config(void __user *argp)
 {
 	struct sensor_cfg_data cdata;
@@ -3925,7 +3832,6 @@ static int ov5640_sensor_config(void __user *argp)
 	case CFG_SET_EFFECT: // 1
 		pr_err("--CAMERA-- CFG_SET_EFFECT mode=%d, effect = %d !!\n",cdata.mode, cdata.cfg.effect);
 		rc = ov5640_set_effect(cdata.mode, cdata.cfg.effect);
-		zte_effect = cdata.cfg.effect;//modify for preview abnormal in mono mode after snapshot  by lijing ZTE_CAM_LJ_20120627
 		break;
 	case CFG_START:      // 2
 		pr_err("--CAMERA-- CFG_START (Not Support) !!\n");
@@ -3953,7 +3859,6 @@ static int ov5640_sensor_config(void __user *argp)
 	case CFG_SET_CONTRAST:     //  13
 		pr_err("--CAMERA-- CFG_SET_CONTRAST  !!\n");
 		rc = ov5640_set_contrast(cdata.cfg.contrast);
-		zte_contrast = cdata.cfg.contrast;//modify for preview abnormal in mono mode after snapshot  by lijing ZTE_CAM_LJ_20120627
 		break;            
 	case CFG_SET_EXPOSURE_MODE:     //  15
 		pr_err("--CAMERA-- CFG_SET_EXPOSURE_MODE !!\n");
@@ -3970,21 +3875,16 @@ static int ov5640_sensor_config(void __user *argp)
 	case CFG_SET_SATURATION:     //  30
 		pr_err("--CAMERA-- CFG_SET_SATURATION !!\n");
 		rc = ov5640_set_saturation(cdata.cfg.saturation);
-		zte_sat = cdata.cfg.saturation;//modify for preview abnormal in mono mode after snapshot  by lijing ZTE_CAM_LJ_20120627
 		break;
 
 	case CFG_SET_SHARPNESS:     //  31
 		pr_err("--CAMERA-- CFG_SET_SHARPNESS !!\n");
 		rc = ov5640_set_sharpness(cdata.cfg.sharpness);
-		zte_sharpness = cdata.cfg.sharpness; //modify for preview abnormal in mono mode after snapshot  by lijing ZTE_CAM_LJ_20120627
 		break;
         
 	case CFG_SET_WB:
 		pr_err("--CAMERA-- CFG_SET_WB!!\n");
 		rc = ov5640_set_wb_oem(cdata.cfg.wb_mode);
-		#ifdef ZTE_FIX_WB_ENABLE
-			zte_wb_mode=cdata.cfg.wb_mode;
-              #endif
 		break;
         
 	case CFG_SET_ISO:
@@ -4233,10 +4133,24 @@ static int ov5640_i2c_probe(struct i2c_client *client,const struct i2c_device_id
 
 static int __ov5640_probe(struct platform_device *pdev)
 {
-#if defined(CONFIG_CAMERA_ADAPTER)
-	return msm_camera_drv_start(pdev, ov5640_sensor_probe,0);
-#else
+/*
+ * ZTE_CAM_LJ_20120310
+ * Get FTM flag to adjust 
+ * the initialize process 
+ * of camera
+ */
+#ifdef CONFIG_ZTE_PLATFORM
+#ifdef CONFIG_ZTE_FTM_FLAG_SUPPORT
+    if(zte_get_ftm_flag())
+    {
+        return 0;
+    }
+#endif
+#endif
+#if 0
 	return msm_camera_drv_start(pdev, ov5640_sensor_probe);
+#else
+	return msm_camera_drv_start(pdev, ov5640_sensor_probe,0);
 #endif
 }
 

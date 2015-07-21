@@ -65,18 +65,14 @@ config OV2675
 	---help---
 	  OmniVision 2.0M YUV Sensor	
 	  
-config MT9D115_SOCKET
-	bool "Sensor mt9d115 SOCKET(YUV 2.0M)"
+config MT9D115
+	bool "Sensor mt9d115 (YUV 2.0M)"
 	depends on MSM_CAMERA && ARCH_MSM7X27A && !MSM_CAMERA_V4L2
 	default n
 	---help---
 	  OmniVision 2.0M YUV Sensor	
-config S5K5CAGX_FF
-	bool "Sensor s5k5cagx FF(YUV 3.0M)"
-	depends on MSM_CAMERA && ARCH_MSM7X27A && !MSM_CAMERA_V4L2
-	default n
-	---help---
-	  SAMSUNG 3.0M YUV sensor
+
+
 config S5K5CAGX
 	bool "Sensor s5k5cagx(YUV 3.0M)"
 	depends on MSM_CAMERA && ARCH_MSM7X27A && !MSM_CAMERA_V4L2
@@ -92,6 +88,13 @@ config S5K5CAGX_SAMSUNG_FPC
 	---help---
 	  SAMSUNG 3.0M YUV Sensor, Module SAMSUNG
 endif # S5K5CAGX
+config OV7692
+	bool "Sensor OV7692 (VGA YUV)"
+	depends on MSM_CAMERA && (ARCH_MSM8X60 || ARCH_MSM7X30 || ARCH_MSM7X27A) && !MSM_CAMERA_V4L2
+	default n
+	---help---
+	  Omni Vision VGA YUV Sensor.	
+
 config OV7692
 	bool "Sensor OV7692 (VGA YUV)"
 	depends on MSM_CAMERA && (ARCH_MSM8X60 || ARCH_MSM7X30 || ARCH_MSM7X27A) && !MSM_CAMERA_V4L2

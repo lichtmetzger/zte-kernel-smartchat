@@ -49,6 +49,7 @@
 #define SENSOR_INFO_OV5640_MODEL_ID     0x5640
 #define SENSOR_INFO_OV5642_MODEL_ID     0x5642
 #define SENSOR_INFO_0X5CA_MODEL_ID      0x5ca
+#define SENSOR_INFO_OV7692_MODEL_ID    0x7692
 /*-----------------------------------------------------------------------------------------
  *
  * TYPE DECLARATION
@@ -59,9 +60,15 @@ static struct sysdev_class camera_sysdev_class = {
 };
 
 static struct sys_device camera_sys_device = {
-    .id = 0,
-    .cls = &camera_sysdev_class,
+	.id = 0,
+	.cls = &camera_sysdev_class,
 };
+
+static struct sys_device front_camera_sys_device = {
+ 	.id = 1,
+	.cls = &camera_sysdev_class,
+};
+
 
 /*-----------------------------------------------------------------------------------------
  *
@@ -69,7 +76,7 @@ static struct sys_device camera_sys_device = {
  *
  *----------------------------------------------------------------------------------------*/
 static uint16_t g_sensor_id = 0;
-
+static uint16_t g_front_sensor_id = 0;
 /*-----------------------------------------------------------------------------------------
  *
  * FUNCTION DECLARATION
@@ -86,6 +93,14 @@ static ssize_t sensorinfo_show_id(struct sys_device *dev,
                                         char *buf)
 {
     return snprintf(buf, PAGE_SIZE, "0x%x\n", g_sensor_id);
+}
+
+static ssize_t front_sensorinfo_show_id(struct sys_device *dev,
+                                        struct sysdev_attribute *attr,
+                                        char *buf)
+{
+    return snprintf(buf, PAGE_SIZE, "0x%x\n", g_front_sensor_id);
+
 }
 
 static ssize_t sensorinfo_show_name(struct sys_device *dev,
@@ -118,12 +133,11 @@ static ssize_t sensorinfo_show_name(struct sys_device *dev,
             sprintf(sensor_name, "OV5642-5.0Mp-AF");
             break;
        case SENSOR_INFO_0X5CA_MODEL_ID:
-	   		#ifdef CONFIG_S5K5CAGX_FF
-            sprintf(sensor_name, "S5K5CAGX-3.0Mp-FF");
-			#else
             sprintf(sensor_name, "S5K5CAGX-3.0Mp-AF");
-			#endif
             break;
+	 case SENSOR_INFO_OV7692_MODEL_ID:
+            sprintf(sensor_name, "OV7692-0.3Mp-FF");
+            break;		
         default:
             sprintf(sensor_name, "No sensor or error ID!");
             break;
@@ -132,6 +146,49 @@ static ssize_t sensorinfo_show_name(struct sys_device *dev,
     return snprintf(buf, PAGE_SIZE, "%s\n", sensor_name);
 }
 
+
+static ssize_t front_sensorinfo_show_name(struct sys_device *dev,
+                                            struct sysdev_attribute *attr,
+                                            char *buf)
+{
+    char sensor_name[MAX_NAME_LENGTH] = {0x00};
+
+    switch(g_front_sensor_id)
+    {
+        case SENSOR_INFO_MT9T112_MODEL_ID:
+            sprintf(sensor_name, "MT9T112-3.0Mp-AF");
+            break;
+        case SENSOR_INFO_MT9T111_MODEL_ID:
+            sprintf(sensor_name, "MT9T111-3.0Mp-AF");
+            break;
+        case SENSOR_INFO_MT9P111_MODEL_ID:
+            sprintf(sensor_name, "MT9P111-5.0Mp-AF");
+            break;
+        case SENSOR_INFO_MT9D115_MODEL_ID:
+            sprintf(sensor_name, "MT9D115-2.0Mp-FF");
+            break;
+        case SENSOR_INFO_MT9D113_MODEL_ID:
+            sprintf(sensor_name, "MT9D113-2.0Mp-FF");
+            break;
+       case SENSOR_INFO_OV5640_MODEL_ID:
+            sprintf(sensor_name, "OV5640-5.0Mp-AF");
+            break;
+        case SENSOR_INFO_OV5642_MODEL_ID:
+            sprintf(sensor_name, "OV5642-5.0Mp-AF");
+            break;
+       case SENSOR_INFO_0X5CA_MODEL_ID:
+            sprintf(sensor_name, "S5K5CAGX-3.0Mp-AF");
+            break;
+	 case SENSOR_INFO_OV7692_MODEL_ID:
+            sprintf(sensor_name, "OV7692-0.3Mp-FF");
+            break;		
+        default:
+            sprintf(sensor_name, "No sensor or error ID!");
+            break;
+    }
+
+    return snprintf(buf, PAGE_SIZE, "%s\n", sensor_name);
+}
 /*
  * LIJING_CAM_20100613
  * modify file permission from 0400->0404
@@ -139,6 +196,11 @@ static ssize_t sensorinfo_show_name(struct sys_device *dev,
 static struct sysdev_attribute sensorinfo_files[] = {
     _SYSDEV_ATTR(id, 0404, sensorinfo_show_id, NULL),
     _SYSDEV_ATTR(name, 0404, sensorinfo_show_name, NULL),
+};
+
+static struct sysdev_attribute front_sensorinfo_files[] = {
+    _SYSDEV_ATTR(id, 0404, front_sensorinfo_show_id, NULL),
+    _SYSDEV_ATTR(name, 0404, front_sensorinfo_show_name, NULL),
 };
 
 static void sensorinfo_create_files(struct sys_device *dev,
@@ -167,6 +229,17 @@ void msm_sensorinfo_set_sensor_id(uint16_t id)
 }
 EXPORT_SYMBOL(msm_sensorinfo_set_sensor_id);
 
+
+DEFINE_SEMAPHORE(set_front_sensor_id_sem);
+void msm_sensorinfo_set_front_sensor_id(uint16_t id)
+{
+    down(&set_front_sensor_id_sem);
+    g_front_sensor_id = id;
+    up(&set_front_sensor_id_sem);
+    
+    
+}
+EXPORT_SYMBOL(msm_sensorinfo_set_front_sensor_id);
 /*
  * Attention:
  *
@@ -189,9 +262,19 @@ static int __init sensorinfo_init(void)
                __func__, err);
         return -EFAULT;
     }
-
+	
     sensorinfo_create_files(&camera_sys_device, sensorinfo_files,
     ARRAY_SIZE(sensorinfo_files));
+     
+     err = sysdev_register(&front_camera_sys_device);
+    if (err) {
+        pr_err("%s: sysdev_register fail (%d)\n",
+               __func__, err);
+        return -EFAULT;
+    }
+
+    sensorinfo_create_files(&front_camera_sys_device, front_sensorinfo_files,
+    ARRAY_SIZE(front_sensorinfo_files));
 
     return 0;
 }

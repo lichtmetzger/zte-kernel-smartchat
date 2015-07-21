@@ -63,6 +63,17 @@ extern int32_t msm_camera_power_backend(enum msm_camera_pwr_mode_t pwr_mode);
 extern int msm_camera_clk_switch(const struct msm_camera_sensor_info *data,
                                         uint32_t gpio_switch,
                                          uint32_t switch_val);
+/*
+ * ZTE_CAM_LJ_20120310
+ * Get FTM flag to adjust 
+ * the initialize process 
+ * of camera
+ */
+#ifdef CONFIG_ZTE_PLATFORM
+#ifdef CONFIG_ZTE_FTM_FLAG_SUPPORT
+extern int zte_get_ftm_flag(void);
+#endif
+#endif
 
 
 //static u8 mt9d115_i2c_buf[4];
@@ -110,6 +121,7 @@ static int mt9d115_i2c_txdata(u16 saddr,u8 *txdata,int length)
 	else return 0;
 }
 
+#ifdef CONFIG_MACH_ATLAS40
 static int32_t mt9d115_i2c_write(unsigned short saddr,
                                       unsigned short waddr,
                                       unsigned short wdata,
@@ -128,11 +140,8 @@ static int32_t mt9d115_i2c_write(unsigned short saddr,
             buf[1] = (waddr & 0x00FF);
             buf[2] = (wdata & 0xFF00) >> 8;
             buf[3] = (wdata & 0x00FF);
-#if defined(CONFIG_CAMERA_ADAPTER)
-	    rc = mt9d115_i2c_txdata(saddr << 1, buf, 4);
-#else
-	    rc = mt9d115_i2c_txdata(saddr, buf, 4);
-#endif
+
+            rc = mt9d115_i2c_txdata(saddr << 1, buf, 4);
         }
         break;
 
@@ -141,11 +150,7 @@ static int32_t mt9d115_i2c_write(unsigned short saddr,
             buf[0] = waddr;
             buf[1] = wdata;
 
-#if defined(CONFIG_CAMERA_ADAPTER)
             rc = mt9d115_i2c_txdata(saddr << 1, buf, 2);
-#else
-            rc = mt9d115_i2c_txdata(saddr, buf, 2);
-#endif
         }
         break;
 
@@ -163,6 +168,54 @@ static int32_t mt9d115_i2c_write(unsigned short saddr,
 
     return rc;
 }
+#else
+static int32_t mt9d115_i2c_write(unsigned short saddr,
+                                      unsigned short waddr,
+                                      unsigned short wdata,
+                                      enum mt9d115_width_t width)
+{
+    int32_t rc = -EFAULT;
+    unsigned char buf[4];
+
+    memset(buf, 0, sizeof(buf));
+
+    switch (width)
+    {
+        case WORD_LEN:
+        {
+            buf[0] = (waddr & 0xFF00) >> 8;
+            buf[1] = (waddr & 0x00FF);
+            buf[2] = (wdata & 0xFF00) >> 8;
+            buf[3] = (wdata & 0x00FF);
+
+            rc = mt9d115_i2c_txdata(saddr, buf, 4);
+        }
+        break;
+
+        case BYTE_LEN:
+        {
+            buf[0] = waddr;
+            buf[1] = wdata;
+
+            rc = mt9d115_i2c_txdata(saddr, buf, 2);
+        }
+        break;
+
+        default:
+        {
+            rc = -EFAULT;
+        }
+        break;
+    }
+
+    if (rc < 0)
+    {
+        pr_err("%s: waddr = 0x%x, wdata = 0x%x, failed!\n", __func__, waddr, wdata);
+    }
+
+    return rc;
+}
+#endif
 
 static int32_t mt9d115_i2c_write_table(struct mt9d115_i2c_reg_conf const *reg_conf_tbl,
                                              int len)
@@ -215,7 +268,7 @@ static int mt9d115_i2c_rxdata(unsigned short saddr,
 
 	return 0;
 }
-
+#ifdef CONFIG_MACH_ATLAS40
 static int32_t mt9d115_i2c_read_byte(unsigned short   saddr,
 									unsigned int raddr, unsigned int *rdata)
 {
@@ -227,11 +280,7 @@ static int32_t mt9d115_i2c_read_byte(unsigned short   saddr,
 	buf[0] = (raddr & 0xFF00)>>8;
 	buf[1] = (raddr & 0x00FF);
 
-#if defined(CONFIG_CAMERA_ADAPTER)
 	rc = mt9d115_i2c_rxdata(saddr << 1, buf, 1);
-#else
-	rc = mt9d115_i2c_rxdata(saddr, buf, 1);
-#endif
 	if (rc < 0) {
 		pr_err("mt9d115_i2c_read_byte failed!\n");
 		return rc;
@@ -241,6 +290,7 @@ static int32_t mt9d115_i2c_read_byte(unsigned short   saddr,
 
 	return rc;
 }
+
 
 static int32_t mt9d115_i2c_read(unsigned short   saddr,
 							   unsigned int raddr, unsigned int *rdata)
@@ -253,11 +303,7 @@ static int32_t mt9d115_i2c_read(unsigned short   saddr,
 	buf[0] = (raddr & 0xFF00)>>8;
 	buf[1] = (raddr & 0x00FF);
 
-#if defined(CONFIG_CAMERA_ADAPTER)
 	rc = mt9d115_i2c_rxdata(saddr << 1, buf, 2);
-#else
-	rc = mt9d115_i2c_rxdata(saddr, buf, 2);
-#endif
 	if (rc < 0)	return rc;
 	*rdata = buf[0] << 8 | buf[1];
 
@@ -265,7 +311,50 @@ static int32_t mt9d115_i2c_read(unsigned short   saddr,
 		pr_err("mt9d115_i2c_read failed!\n");
 	return rc;
 }
+#else
+static int32_t mt9d115_i2c_read_byte(unsigned short   saddr,
+									unsigned int raddr, unsigned int *rdata)
+{
+	int rc = 0;
+	unsigned char buf[2];
+	
+	memset(buf, 0, sizeof(buf));
 
+	buf[0] = (raddr & 0xFF00)>>8;
+	buf[1] = (raddr & 0x00FF);
+
+	rc = mt9d115_i2c_rxdata(saddr, buf, 1);
+	if (rc < 0) {
+		pr_err("mt9d115_i2c_read_byte failed!\n");
+		return rc;
+	}
+
+	*rdata = buf[0];
+
+	return rc;
+}
+
+
+static int32_t mt9d115_i2c_read(unsigned short   saddr,
+							   unsigned int raddr, unsigned int *rdata)
+{
+	int rc = 0;
+	unsigned char buf[2];
+
+	memset(buf, 0, sizeof(buf));
+
+	buf[0] = (raddr & 0xFF00)>>8;
+	buf[1] = (raddr & 0x00FF);
+
+	rc = mt9d115_i2c_rxdata(saddr, buf, 2);
+	if (rc < 0)	return rc;
+	*rdata = buf[0] << 8 | buf[1];
+
+	if (rc < 0)
+		pr_err("mt9d115_i2c_read failed!\n");
+	return rc;
+}
+#endif
 
 static void mt9d115_power_off(void)
 {
@@ -620,7 +709,7 @@ static int mt9d115_sensor_open_init(const struct msm_camera_sensor_info *data)
 	if (data)
 		mt9d115_ctrl->sensordata = data;
 
-#if defined(CONFIG_MACH_MOONCAKE2) || defined(CONFIG_MACH_ATLAS40)   
+#if defined(CONFIG_MACH_MOONCAKE2) || defined(CONFIG_MACH_ATLAS40)  
      rc = msm_camera_clk_switch(data, MT9D115_GPIO_SWITCH_CTL, MT9D115_GPIO_SWITCH_VAL);
     if (rc < 0)
     {
@@ -1074,9 +1163,6 @@ static int mt9d115_set_iso(int iso_val)
     {
         case CAMERA_ISO_SET_AUTO:
         {
-	rc = mt9d115_i2c_write_table(mt9d115_regs.iso_level_tbl[0],
-                                         mt9d115_regs.iso_level_tbl_sz[0]);
-#if 0			
             rc = mt9d115_i2c_write(mt9d115_client->addr, 0x098C,  0xA20D, WORD_LEN);
             if (rc < 0)
             {
@@ -1160,10 +1246,7 @@ static int mt9d115_set_iso(int iso_val)
             {
                 return rc;
             }
-#endif			
         }
-
-
         break;
 
         case CAMERA_ISO_SET_HJR:
@@ -1175,9 +1258,6 @@ static int mt9d115_set_iso(int iso_val)
 
         case CAMERA_ISO_SET_100:
         {
-		rc = mt9d115_i2c_write_table(mt9d115_regs.iso_level_tbl[1],
-                                         mt9d115_regs.iso_level_tbl_sz[1]);		
-#if 0
              rc = mt9d115_i2c_write(mt9d115_client->addr, 0x098C,  0xA20D, WORD_LEN);
              if (rc < 0)
              {
@@ -1228,16 +1308,11 @@ static int mt9d115_set_iso(int iso_val)
             {
                 return rc;
             }
-#endif
-
         }
         break;
 
         case CAMERA_ISO_SET_200:
         {
-	rc = mt9d115_i2c_write_table(mt9d115_regs.iso_level_tbl[2],
-                                         mt9d115_regs.iso_level_tbl_sz[2]);		
-#if 0			
              rc = mt9d115_i2c_write(mt9d115_client->addr, 0x098C,  0xA20D, WORD_LEN);
              if (rc < 0)
              {
@@ -1288,16 +1363,11 @@ static int mt9d115_set_iso(int iso_val)
             {
                 return rc;
             }
-#endif
-
         }
         break;
 
         case CAMERA_ISO_SET_400:
         {
-	rc = mt9d115_i2c_write_table(mt9d115_regs.iso_level_tbl[3],
-                                         mt9d115_regs.iso_level_tbl_sz[3]);		
-#if 0			
             rc = mt9d115_i2c_write(mt9d115_client->addr, 0x098C,  0xA20D, WORD_LEN);
             if (rc < 0)
             {
@@ -1348,16 +1418,11 @@ static int mt9d115_set_iso(int iso_val)
             {
                 return rc;
             }
-#endif
-
         }
         break;
 
         case CAMERA_ISO_SET_800:
         {
-	rc = mt9d115_i2c_write_table(mt9d115_regs.iso_level_tbl[4],
-                                         mt9d115_regs.iso_level_tbl_sz[4]);		
-#if 0			
             rc = mt9d115_i2c_write(mt9d115_client->addr, 0x098C,  0xA20D, WORD_LEN);
             if (rc < 0)
             {
@@ -1408,7 +1473,6 @@ static int mt9d115_set_iso(int iso_val)
             {
                 return rc;
             }
-#endif			
         }
         break;
 
@@ -1974,7 +2038,7 @@ static int mt9d115_sensor_probe(const struct msm_camera_sensor_info *info,struct
 		return -EIO;
 	}	
 
-	rc = mt9d115_probe_init_gpio(info);
+	rc = mt9d115_probe_init_gpio(info);
 
 	mt9d115_power_on();
 	msleep(5);
@@ -2081,10 +2145,24 @@ static int mt9d115_i2c_probe(struct i2c_client *client,const struct i2c_device_i
 
 static int __mt9d115_probe(struct platform_device *pdev)
 {
-#if defined(CONFIG_CAMERA_ADAPTER)
-	return msm_camera_drv_start(pdev, mt9d115_sensor_probe,0);
-#else
+/*
+ * ZTE_CAM_LJ_20120310
+ * Get FTM flag to adjust 
+ * the initialize process 
+ * of camera
+ */
+#ifdef CONFIG_ZTE_PLATFORM
+#ifdef CONFIG_ZTE_FTM_FLAG_SUPPORT
+    if(zte_get_ftm_flag())
+    {
+        return 0;
+    }
+#endif
+#endif
+#if 0
 	return msm_camera_drv_start(pdev, mt9d115_sensor_probe);
+#else
+    return msm_camera_drv_start(pdev, mt9d115_sensor_probe,0);
 #endif
 }
 

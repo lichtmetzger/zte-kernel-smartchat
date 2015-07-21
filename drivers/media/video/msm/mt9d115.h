@@ -77,9 +77,6 @@ struct mt9d115_reg_t {
     struct mt9d115_i2c_reg_conf const *af_tbl;
     uint16_t af_tbl_sz;
 
-   struct mt9d115_i2c_reg_conf const **iso_level_tbl;
-    uint16_t const*iso_level_tbl_sz;
-	
     struct mt9d115_i2c_reg_conf const **contrast_tbl;
     uint16_t const *contrast_tbl_sz;
 

@@ -49,12 +49,6 @@ static int S5K5CAGX_CSI_CONFIG = 0;
 #define S5K5CAGX_GPIO_SWITCH_VAL     0
 #define S5K5CAGX_GPIO_SWITCH_CTL    49
 
-#ifndef CONFIG_S5K5CAGX_FF
-#define SENSOR_NAME "s5k5cagx"
-#else
-#define SENSOR_NAME "s5k5cagx_ff"
-#endif
-
 
 struct s5k5cagx_work {
 	struct work_struct work;
@@ -68,6 +62,17 @@ extern int32_t msm_camera_power_backend(enum msm_camera_pwr_mode_t pwr_mode);
 extern int msm_camera_clk_switch(const struct msm_camera_sensor_info *data,
                                         uint32_t gpio_switch,
                                          uint32_t switch_val);
+/*
+ * ZTE_CAM_LJ_20120310
+ * Get FTM flag to adjust 
+ * the initialize process 
+ * of camera
+ */
+#ifdef CONFIG_ZTE_PLATFORM
+#ifdef CONFIG_ZTE_FTM_FLAG_SUPPORT
+extern int zte_get_ftm_flag(void);
+#endif
+#endif
 
 static u8 s5k5cagx_i2c_buf[4];
 static u8 s5k5cagx_counter = 0;
@@ -1017,7 +1022,7 @@ static int s5k5cagx_sensor_release(void)
 }
 
 static const struct i2c_device_id s5k5cagx_i2c_id[] = {
-	{SENSOR_NAME, 0},{}
+	{"s5k5cagx", 0},{}
 };
 
 static int s5k5cagx_i2c_remove(struct i2c_client *client)
@@ -1929,7 +1934,7 @@ static struct i2c_driver s5k5cagx_i2c_driver = {
 	.probe  = s5k5cagx_i2c_probe,
 	.remove = s5k5cagx_i2c_remove,
 	.driver = {
-		.name = SENSOR_NAME,
+		.name = "s5k5cagx",
 	},
 };
 
@@ -2136,21 +2141,31 @@ pr_err("--CAMERA-- %s ... (Start...)\n",__func__);
 
 static int __s5k5cagx_probe(struct platform_device *pdev)
 {
-#if defined(CONFIG_CAMERA_ADAPTER)
-	return msm_camera_drv_start(pdev, s5k5cagx_sensor_probe, 0);
-#else
+/*
+ * ZTE_CAM_LJ_20120310
+ * Get FTM flag to adjust 
+ * the initialize process 
+ * of camera
+ */
+#ifdef CONFIG_ZTE_PLATFORM
+#ifdef CONFIG_ZTE_FTM_FLAG_SUPPORT
+    if(zte_get_ftm_flag())
+    {
+        return 0;
+    }
+#endif
+#endif
+#if 0
 	return msm_camera_drv_start(pdev, s5k5cagx_sensor_probe);
+#else
+	return msm_camera_drv_start(pdev, s5k5cagx_sensor_probe, 0);
 #endif
 }
 
 static struct platform_driver msm_camera_driver = {
 	.probe = __s5k5cagx_probe,
 	.driver = {
-#ifdef CONFIG_S5K5CAGX_FF
-        .name = "msm_camera_s5k5cagx_ff",
-#else
 		.name = "msm_camera_s5k5cagx",
-#endif
 		.owner = THIS_MODULE,
 	},
 };

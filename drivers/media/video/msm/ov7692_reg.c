@@ -33,7 +33,7 @@ static struct ov7692_i2c_reg_conf const preview_snapshot_mode_reg_settings_array
     {0xb4, 0xc0,BYTE_LEN,0},
     {0xb5, 0x40,BYTE_LEN,0},
     {0xff, 0x00,BYTE_LEN,0},
-    {0x0c, 0xc0,BYTE_LEN,0}, //0x00    [6] mirror enable  [7] filp enable //0x80 ZTE_20120117_YGL
+    {0x0c, 0x00,BYTE_LEN,0}, //0x00    [6] mirror enable  [7] filp enable
     {0x62, 0x10,BYTE_LEN,0},
     {0x12, 0x00,BYTE_LEN,0},
     {0x17, 0x65,BYTE_LEN,0},
@@ -237,14 +237,15 @@ static struct ov7692_i2c_reg_conf const preview_snapshot_mode_reg_settings_array
     {0xa0, 0xa7,BYTE_LEN,0},                  
     {0xa1, 0xb0,BYTE_LEN,0},                  
     {0xa2, 0x0f,BYTE_LEN,0}, 
-	/*change the fps to 15,ZTE_CAM_YGL_20111215*/
     {0x31, 0x87,BYTE_LEN,0}, //0x87 for 15fps ; 0x83 for 30fps
     
     {0xd2, 0x02,BYTE_LEN,0},  //enable saturation       
 	         
     {0xd8, 0x38,BYTE_LEN,0}, //saturation                 
     {0xd9, 0x38,BYTE_LEN,0},     
-                
+
+    {0xb4,0x26, BYTE_LEN, 0},
+	{0xb6,0x08, BYTE_LEN, 0},
 };
 
 static struct ov7692_i2c_reg_conf const clk_tbl[] = {

@@ -58,6 +58,19 @@ extern int msm_camera_clk_switch(const struct msm_camera_sensor_info *data,
                                         uint32_t gpio_switch,
                                          uint32_t switch_val);
 
+extern void msm_sensorinfo_set_front_sensor_id(uint16_t id);
+/*
+ * ZTE_CAM_LJ_20120310
+ * Get FTM flag to adjust 
+ * the initialize process 
+ * of camera
+ */
+#ifdef CONFIG_ZTE_PLATFORM
+#ifdef CONFIG_ZTE_FTM_FLAG_SUPPORT
+extern int zte_get_ftm_flag(void);
+#endif
+#endif
+
 /*============================================================================
 							DATA DECLARATIONS
 ============================================================================*/
@@ -153,11 +166,13 @@ static int32_t ov7692_i2c_read(uint8_t raddr,
 {
 	int32_t rc = 0;
 	unsigned char buf[1];
+
+    pr_err("atlas40 ov7692_i2c_read\n");
 	if (!rdata)
 		return -EIO;
 	memset(buf, 0, sizeof(buf));
 	buf[0] = raddr;
-	rc = ov7692_i2c_rxdata((ov7692_client->addr)<<1, buf, rlen);
+	rc = ov7692_i2c_rxdata((ov7692_client->addr)>>1, buf, rlen);
 	if (rc < 0) {
 		pr_err("ov7692_i2c_read 0x%x failed!\n", raddr);
 		return rc;
@@ -185,7 +200,7 @@ static int32_t ov7692_i2c_write(unsigned short saddr,
             buf[2] = (wdata & 0xFF00) >> 8;
             buf[3] = (wdata & 0x00FF);
 
-            rc = ov7692_i2c_txdata((saddr)<<1, buf, 4);
+            rc = ov7692_i2c_txdata((saddr)>>1, buf, 4);
         }
         break;
 
@@ -194,7 +209,7 @@ static int32_t ov7692_i2c_write(unsigned short saddr,
             buf[0] = waddr;
             buf[1] = wdata;
 
-            rc = ov7692_i2c_txdata((saddr)<<1, buf, 2);
+            rc = ov7692_i2c_txdata((saddr)>>1, buf, 2);
         }
         break;
 
@@ -219,6 +234,8 @@ static int32_t ov7692_i2c_read(uint8_t raddr,
 {
 	int32_t rc = 0;
 	unsigned char buf[1];
+
+    pr_err("ov7692_i2c_read\n");
 	if (!rdata)
 		return -EIO;
 	memset(buf, 0, sizeof(buf));
@@ -332,7 +349,15 @@ static int32_t ov7692_sensor_setting(int update_type, int rt)
 
 			OV7692_CSI_CONFIG = 1;
 			msleep(20);
-			return rc;
+			//return rc;
+		}
+
+
+		if (S_RES_PREVIEW == rt) {
+			rc = ov7692_i2c_write(ov7692_client->addr,0x0c,0x80,BYTE_LEN);
+
+		} else if (S_RES_CAPTURE == rt) {
+			rc = ov7692_i2c_write(ov7692_client->addr,0x0C,0x00,BYTE_LEN);
 		}
 		break;
 	default:
@@ -347,7 +372,12 @@ static int32_t ov7692_video_config(int mode)
 	int32_t rc = 0;
 	int rt;
 	/* change sensor resolution if needed */
-	rt = RES_PREVIEW;
+	if(mode == SENSOR_SNAPSHOT_MODE) {
+		rt = S_RES_CAPTURE;
+		}
+	else	{
+		rt = S_RES_PREVIEW;
+		}
 
 	if (ov7692_sensor_setting(UPDATE_PERIODIC, rt) < 0)
 		return rc;
@@ -362,9 +392,9 @@ static int32_t ov7692_set_sensor_mode(int mode,
 	int32_t rc = 0;
 	switch (mode) {
 	case SENSOR_PREVIEW_MODE:
+	case SENSOR_SNAPSHOT_MODE:
 		rc = ov7692_video_config(mode);
 		break;
-	case SENSOR_SNAPSHOT_MODE:
 	case SENSOR_RAW_SNAPSHOT_MODE:
 		break;
 	default:
@@ -416,6 +446,10 @@ static int ov7692_probe_init_sensor(const struct msm_camera_sensor_info *data)
 		rc = -ENODEV;
 		goto init_probe_fail;
 	}
+#ifdef CONFIG_SENSOR_INFO
+	msm_sensorinfo_set_front_sensor_id(model_id);
+#endif
+
 	goto init_probe_done;
 init_probe_fail:
 	pr_warning(" ov7692_probe_init_sensor fails\n");
@@ -1410,7 +1444,7 @@ static int ov7692_sensor_probe(const struct msm_camera_sensor_info *info,
 	s->s_release = ov7692_sensor_release;
 	s->s_config  = ov7692_sensor_config;
 	s->s_camera_type = FRONT_CAMERA_2D;
-	s->s_mount_angle = 0;
+	s->s_mount_angle = 90;
 	ov7692_power_down();
 	return rc;
 
@@ -1422,8 +1456,25 @@ probe_fail:
 
 static int __ov7692_probe(struct platform_device *pdev)
 {
-
+/*
+ * ZTE_CAM_LJ_20120310
+ * Get FTM flag to adjust 
+ * the initialize process 
+ * of camera
+ */
+#ifdef CONFIG_ZTE_PLATFORM
+#ifdef CONFIG_ZTE_FTM_FLAG_SUPPORT
+    if(zte_get_ftm_flag())
+    {
+        return 0;
+    }
+#endif
+#endif
+#if 0
 	return msm_camera_drv_start(pdev, ov7692_sensor_probe);
+#else
+    return msm_camera_drv_start(pdev, ov7692_sensor_probe,1);
+#endif
 }
 
 static struct platform_driver msm_camera_driver = {

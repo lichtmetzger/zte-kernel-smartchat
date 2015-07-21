@@ -49,7 +49,6 @@ obj-$(CONFIG_MSM_V4L2_VIDEO_OVERLAY_DEVICE) += msm_v4l2_video.o
 obj-$(CONFIG_OV5640_GLOBALOPTICS)  += ov5640.o  ov5640_reg.o
 obj-$(CONFIG_MT9D115)  += mt9d115.o  mt9d115_reg.o
 obj-$(CONFIG_S5K5CAGX_SAMSUNG_FPC)  += s5k5cagx_fpc.o
-obj-$(CONFIG_S5K5CAGX_FF)  += s5k5cagx_fpc.o
 obj-$(CONFIG_OV7692)  += ov7692.o  ov7692_reg.o
 obj-$(CONFIG_MSM_GEMINI) += msm_gemini_dev.o msm_gemini_sync.o msm_gemini_core.o msm_gemini_hw.o msm_gemini_platform.o
 obj-$(CONFIG_OV2675)  += ov2675.o 
